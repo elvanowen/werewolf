@@ -38,6 +38,10 @@ class TCPClient implements Runnable{
 
     public void onMessageReceived(String message){
         System.out.println("onReceivedMessage : " + message);
+
+        if (Client.lastSentMethod == "join"){
+            Client.onResponseJoinGame(message);
+        }
     }
 
     public void run(){
