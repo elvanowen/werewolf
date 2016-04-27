@@ -13,19 +13,20 @@ public class TCPServer extends Thread {
     public TCPServer(int port){
         try {
             serverSocket = new ServerSocket(port);
-//            serverSocket.setSoTimeout(10000);
 
-            this.start();
+            Thread thread = new Thread(this);
+            thread.start();
+//            thread.join();
         } catch (Exception e) {
             System.out.println(e);
         }
     }
 
     public void run() {
+        System.out.println("Waiting for client on port " + serverSocket.getLocalPort() + "...");
+
         while(true) {
             try {
-                System.out.println("Waiting for client on port " + serverSocket.getLocalPort() + "...");
-
                 Socket _clientSocket = serverSocket.accept();
 
                 Client client = new Client(this, _clientSocket);
@@ -40,16 +41,16 @@ public class TCPServer extends Thread {
             }
         }
     }
-
+    
     public void onMessageReceived(Client client, String message){
         System.out.println("on: " + message); 
         Server.onMessageReceived(client, message); // pass to server
     }
-
+    
     public void broadcast(HashMap<String, TCPServer.Client>clientList ,String message){
         
     }
-
+    
     public void send(TCPServer.Client client, String message){
         client.clientSocket.send(message);
     }
@@ -84,7 +85,6 @@ public class TCPServer extends Thread {
         }
     }
     
-    
     private class ClientSocket implements Runnable {
         private Socket clientSocket = null;
         private Thread thread;
@@ -98,35 +98,44 @@ public class TCPServer extends Thread {
             
             System.out.println("Just connected to " + this.clientSocket.getRemoteSocketAddress());
 
-            thread = new Thread(this);
-            thread.start();
+            try {
+                thread = new Thread(this);
+                thread.start();
+//                thread.join();
+            } catch (Exception e){
+                System.out.println(e);
+            }
+
         }
 
         public void run(){
             while (true){
                 try {
                     BufferedReader br = new BufferedReader(new InputStreamReader(this.clientSocket.getInputStream()));
+
                     String inLine = null;
                     while (((inLine = br.readLine()) != null) && (!(inLine.equals("")))) {
-                        this.server.onMessageReceived(this.client,inLine);
+                          this.server.onMessageReceived(this.client,inLine);
                     }
-//                    System.out.println("join received");
                 } catch (Exception e) {
-                    System.out.println(e.getMessage());
+                    System.out.println(e);
                 }
             }
         }
 
         public void send(String message){
             PrintStream output;
+
             try {
                 output = new PrintStream(clientSocket.getOutputStream());
+
                 output.println(message);
                 output.flush();
-            } catch (Exception e) {
-                System.out.println(e.getMessage());
-            }
 
+                System.out.println("Server Socket sent " + message);
+            } catch (IOException e) {
+                System.out.println(e);
+            }
         }
     }
 }

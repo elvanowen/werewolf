@@ -4,7 +4,7 @@ import java.net.*;
 
 class TCPClient implements Runnable{
     Socket socket;
-    private Thread thread;
+    Thread thread;
 
     public TCPClient(){
         this("localhost", 8888);
@@ -13,33 +13,42 @@ class TCPClient implements Runnable{
     public TCPClient(String targetAddress, int targetPort){
         try {
             socket = new Socket(targetAddress, targetPort);
+
+            thread = new Thread(this);
+            thread.start();
         } catch (Exception e){
-            System.out.print(e.getMessage());
+            e.printStackTrace();
         }
+
+        System.out.println("Just connected to " + socket.getRemoteSocketAddress());
     }
 
     public void send(String message){
         try {
-            OutputStream outToServer = socket.getOutputStream();
-            DataOutputStream out = new DataOutputStream(outToServer);
-            out.writeUTF(message);
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+
+            out.println(message);
+            out.flush();
+
+            System.out.println("Client Socket sent " + message);
         } catch (Exception e){
             System.out.println(e);
         }
     }
 
     public void onMessageReceived(String message){
+        System.out.println("onReceivedMessage : " + message);
 
+        if (Client.lastSentMethod == "join"){
+            Client.onResponseJoinGame(message);
+        }
     }
 
     public void run(){
         while (true){
             try {
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                System.out.print("Received string: '");
-
-                while (!in.ready()) {}
-                onMessageReceived(in.readLine());
+                DataInputStream is = new DataInputStream(socket.getInputStream());
+                onMessageReceived(is.readLine());
             } catch (Exception e) {
                 System.out.println(e.getMessage());
             }
