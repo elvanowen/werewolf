@@ -20,6 +20,8 @@ public class UDPServer implements Runnable {
     }
 
     public UDPServer(int listerPort){
+        this.listenPort = listerPort;
+
         try {
             serverSocket = new DatagramSocket(listenPort);
             thread = new Thread(this);
@@ -32,10 +34,11 @@ public class UDPServer implements Runnable {
     }
 
     public void onMessageReceived(String message){
-
+        System.out.println("onMessageReceived : " + message);
     }
 
     public void run(){
+        System.out.println("UDP Server Listening on port " + listenPort);
         while (true){
             try {
                 byte[] receiveData = new byte[1024];
