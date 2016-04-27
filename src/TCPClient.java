@@ -2,9 +2,9 @@ import java.lang.*;
 import java.io.*;
 import java.net.*;
 
-class TCPClient implements Runnable{
-    Socket socket;
-    Thread thread;
+public abstract class TCPClient implements Runnable{
+    static Socket socket;
+    static Thread thread;
 
     public TCPClient(){
         this("localhost", 8888);
@@ -23,7 +23,7 @@ class TCPClient implements Runnable{
         System.out.println("Just connected to " + socket.getRemoteSocketAddress());
     }
 
-    public void send(String message){
+    public static void send(String message){
         try {
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
 
@@ -36,14 +36,9 @@ class TCPClient implements Runnable{
         }
     }
 
-    public void onMessageReceived(String message){
-        System.out.println("onReceivedMessage : " + message);
+    public abstract void onMessageReceived(String message);
 
-        if (Client.lastSentMethod == "join"){
-            Client.onResponseJoinGame(message);
-        }
-    }
-
+    @Override
     public void run(){
         while (true){
             try {

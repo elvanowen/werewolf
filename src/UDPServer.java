@@ -32,17 +32,10 @@ public class UDPServer implements Runnable {
         } catch (Exception e){
             System.out.println(e);
         }
-
     }
 
     public void onMessageReceived(String message) throws ParseException {
         System.out.println("onMessageReceived : " + message);
-
-        if (Client.lastSentMethod == "join") {
-            Client.onResponseJoinGame(message);
-        } else if (Client.lastSentMethod == "leave") {
-            Client.onResponseLeaveGame(message);
-        }
     }
 
     public void run(){
