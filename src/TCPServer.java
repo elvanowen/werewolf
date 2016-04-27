@@ -2,9 +2,10 @@ import java.net.*;
 import java.io.*;
 import java.util.*;
 
-public class TCPServer extends Thread {
-    private ServerSocket serverSocket;
-    private ArrayList<ClientSocket> clientSocketList;
+public class TCPServer implements Runnable {
+    ServerSocket serverSocket;
+    ArrayList<ClientSocket> clientSocketList = new ArrayList<ClientSocket>();
+    Thread thread;
 
     public TCPServer(){
         this(8888);
@@ -13,23 +14,26 @@ public class TCPServer extends Thread {
     public TCPServer(int port){
         try {
             serverSocket = new ServerSocket(port);
-//            serverSocket.setSoTimeout(10000);
 
-            this.start();
+            thread = new Thread(this);
+            thread.start();
+//            thread.join();
         } catch (Exception e) {
             System.out.println(e);
         }
     }
 
     public void run() {
+        System.out.println("Waiting for client on port " + serverSocket.getLocalPort() + "...");
+
         while(true) {
             try {
-                System.out.println("Waiting for client on port " + serverSocket.getLocalPort() + "...");
-
                 Socket _clientSocket = serverSocket.accept();
 
                 ClientSocket clientSocket = new ClientSocket(this, _clientSocket);
+                System.out.println("Before : " + clientSocketList.size());
                 clientSocketList.add(clientSocket);
+                System.out.println("After : " + clientSocketList.size());
             } catch(SocketTimeoutException s) {
                 System.out.println("Socket timed out!");
                 break;
@@ -41,11 +45,19 @@ public class TCPServer extends Thread {
     }
 
     public void onMessageReceived(String message){
+        System.out.println("onReceivedMessage : " + message);
+
+        broadcast(message + " toooo!!");
+//        send(clientSocketList, message + " toooo!!");
+
 
     }
 
     public void broadcast(String message){
         for (ClientSocket clientSocket: clientSocketList) {
+            System.out.println("Broadcasting !!");
+            System.out.println(clientSocket);
+
             clientSocket.send(message);
         }
     }
@@ -67,29 +79,44 @@ public class TCPServer extends Thread {
 
             System.out.println("Just connected to " + this.clientSocket.getRemoteSocketAddress());
 
-            thread = new Thread(this);
-            thread.start();
+            try {
+                thread = new Thread(this);
+                thread.start();
+//                thread.join();
+            } catch (Exception e){
+                System.out.println(e);
+            }
+
         }
 
         public void run(){
             while (true){
                 try {
-                    DataInputStream in = new DataInputStream(this.clientSocket.getInputStream());
-                    this.server.onMessageReceived(in.readUTF());
+                    BufferedReader br = new BufferedReader(new InputStreamReader(this.clientSocket.getInputStream()));
+
+                    String inLine = null;
+                    while (((inLine = br.readLine()) != null) && (!(inLine.equals("")))) {
+                        this.server.onMessageReceived(inLine);
+                    }
                 } catch (Exception e) {
-                    System.out.println(e.getMessage());
+                    System.out.println(e);
                 }
             }
         }
 
         public void send(String message){
-            try {
-                DataOutputStream out = new DataOutputStream(this.clientSocket.getOutputStream());
-                out.writeUTF(message);
-            } catch (Exception e) {
-                System.out.println(e.getMessage());
-            }
+            PrintStream output;
 
+            try {
+                output = new PrintStream(clientSocket.getOutputStream());
+
+                output.println(message);
+                output.flush();
+
+                System.out.println("Server Socket sent " + message);
+            } catch (IOException e) {
+                System.out.println(e);
+            }
         }
     }
 }
