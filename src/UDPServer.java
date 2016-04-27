@@ -1,3 +1,5 @@
+import org.json.simple.parser.ParseException;
+
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 
@@ -33,8 +35,14 @@ public class UDPServer implements Runnable {
 
     }
 
-    public void onMessageReceived(String message){
+    public void onMessageReceived(String message) throws ParseException {
         System.out.println("onMessageReceived : " + message);
+
+        if (Client.lastSentMethod == "join") {
+            Client.onResponseJoinGame(message);
+        } else if (Client.lastSentMethod == "leave") {
+            Client.onResponseLeaveGame(message);
+        }
     }
 
     public void run(){

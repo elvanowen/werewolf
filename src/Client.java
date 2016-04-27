@@ -20,9 +20,10 @@ public class Client {
     static int playerID;
 
 	public static void main(String args[]) throws Exception {
-        tcpClient = new TCPClient(this);
+        tcpClient = new TCPClient();
 
         promptUsername();
+        joinGame();
 
 //        Random random = new Random();
 //        int number = random.nextInt(5);
@@ -78,16 +79,49 @@ public class Client {
     }
 
     public static void leaveGame(){
+        lastSentMethod = "leave";
 
+        JSONObject jsonObject = new JSONObject();
+
+        jsonObject.put("method", "leave");
+        tcpClient.send(jsonObject.toString());
+    }
+
+    public static void onResponseLeaveGame(String message) throws ParseException {
+        JSONParser parser = new JSONParser();
+
+        JSONObject jsonObject = (JSONObject) parser.parse(message);
+
+        if (jsonObject.get("status") == "ok") {
+            playerID = Integer.parseInt(jsonObject.get("player_id").toString());
+        }
     }
 
     public static void readyUp(){
 
     }
 
+    public static void onResponseReadyUp(String message) throws ParseException {
+        JSONParser parser = new JSONParser();
+
+        JSONObject jsonObject = (JSONObject) parser.parse(message);
+
+        if (jsonObject.get("status") == "ok") {
+            playerID = Integer.parseInt(jsonObject.get("player_id").toString());
+        }
+    }
+
     public static void listClient(){
 
     }
 
+    public static void onResponseListClient(String message) throws ParseException {
+        JSONParser parser = new JSONParser();
 
+        JSONObject jsonObject = (JSONObject) parser.parse(message);
+
+        if (jsonObject.get("status") == "ok") {
+            playerID = Integer.parseInt(jsonObject.get("player_id").toString());
+        }
+    }
 }
