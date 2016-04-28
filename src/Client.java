@@ -8,6 +8,8 @@ import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Scanner;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 class WerewolfClient extends TCPClient{
     String lastSentMethod;
@@ -51,6 +53,12 @@ public class Client{
     static String highestKPUId = "0-0";
     static String username;
     static int playerID;
+    static int kpuID;
+    
+    static ArrayList<Vote> voteList;
+    static int numOfPlayer;
+    static int numOfWerewolf;
+    static int numOfVote=0;
 
     static {
         promptServerAddress();
@@ -59,6 +67,7 @@ public class Client{
     public static void main(String args[]) throws Exception {
         registerListener();
         while (true) promptCommand();
+        JSONObject json = 
     }
 
     public static void registerListener(){
@@ -229,6 +238,27 @@ public class Client{
 
             }
         });
+        
+        client.registerListener("vote_werewolf", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject response) {
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+                infoWerewolfKilled(Integer.parseInt(message.get("player_id").toString()));
+                
+                try {
+                    JSONObject response = new JSONObject();
+                    response.put("status", "fail");
+                    response.put("status", "rejected");
+
+                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
     }
 
     public static void promptServerAddress(){
@@ -331,5 +361,121 @@ public class Client{
         for (JSONObject client : clientList){
             new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString())).send(jsonObject.toString());
         }
+    }
+    
+    
+    public void killWerewolfVote(){
+        //send vote to KPU for all non-KPU
+        if (playerID != kpuID){
+            //client dan werewolf
+            
+            Scanner reader = new Scanner(System.in);  // Reading from System.in
+            int playerIDVote = reader.nextInt();
+            
+            JSONObject jsonObject = new JSONObject();
+            
+            jsonObject.put("method","vote_werewolf");
+            jsonObject.put("player_id", playerIDVote);
+            UDPClient udpClient = new UDPClient();
+            
+            try {
+                udpClient.send(jsonObject.toString());
+            } catch (Exception ex) {
+                Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+    }
+    
+    public static void infoWerewolfKilled(int player_id){
+        boolean added = false;
+        numOfVote++;
+        //cari apakah sudah ada di voteList
+        for (Vote object: voteList) {
+            if ((player_id==object.getPlayerId()) && !added) {
+                //tambah count 1
+                object.setVoteCount(object.getVoteCount() + 1);
+                added=true;
+            }
+            if(added){
+                break;
+            }
+        }
+        if (!added){
+            //buat vote baru
+            Vote voteNew = new Vote(player_id,1);
+            voteList.add(voteNew);
+        }
+
+        //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
+        if (numOfVote==numOfPlayer){
+            //Menentukan apakah ada voting tertinggi
+            Vote player_to_kill = voteList.get(0); // asumsi awal majority
+            boolean majority_selected = true;
+            for (Vote object: voteList) {
+                if (object.getVoteCount() > player_to_kill.getVoteCount()) {
+                    player_to_kill = object;
+                    majority_selected = true; //ada majority baru
+                } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
+                    majority_selected = false; //ada lebih dari 1 majority
+                }
+            }
+            //Sudah ada kesimpulan apakah ada majority / tidak
+
+            //rekapitulasi vote_result
+            String recap = "";
+            //Vote pertama
+            Vote firstVote = voteList.get(0);
+            recap = recap + "[" + "(" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + ")"; 
+            for (Vote object: voteList) {
+                if(object.getPlayerId() != firstVote.getPlayerId()){
+                    recap = recap + ", (" + object.getPlayerId()  + ", " + object.getVoteCount() + ")";
+                }
+            }
+            recap = recap +"]";
+            
+            JSONObject jsonObject = new JSONObject();
+
+            //rekapitulasi selesai  
+            if (majority_selected){
+                jsonObject.put("method","vote_result_werewolf");
+                jsonObject.put("vote_status", "1");
+                jsonObject.put("player_killed", player_to_kill.getPlayerId());
+                jsonObject.put("vote_result", recap);
+                //client.send(jsonObject.toString());
+                   System.out.println(jsonObject.toString());
+            } else { //tidak ada majority terpilih
+                jsonObject.put("method","vote_result");
+                jsonObject.put("vote_status", "-1");
+                jsonObject.put("vote_result", recap);
+                client.send(jsonObject.toString());                
+            }
+        }
+    }
+}
+
+
+class Vote{
+    private int playerId;
+    private int voteCount;
+
+    public Vote(int playerId, int voteCount) {
+        this.playerId = playerId;
+        this.voteCount = voteCount;
+    }
+
+    public int getPlayerId() {
+        return playerId;
+    }
+
+    public int getVoteCount() {
+        return voteCount;
+    }
+
+    public void setPlayerId(int playerId) {
+        this.playerId = playerId;
+    }
+
+    public void setVoteCount(int voteCount) {
+        this.voteCount = voteCount;
     }
 }
