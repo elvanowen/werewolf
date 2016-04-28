@@ -7,11 +7,6 @@ import java.util.HashMap;
 import java.util.Scanner;
 
 public class Client extends TCPClient{
-	/**
-	 * Contoh kode program untuk node yang mengirimkan paket. Paket dikirim
-	 * menggunakan UnreliableSender untuk mensimulasikan paket yang hilang.
-	 */
-
     static String lastSentMethod;
     static Client client;
 
@@ -38,15 +33,20 @@ public class Client extends TCPClient{
         JSONObject jsonObject = null;
         try {
             jsonObject = (JSONObject) new JSONParser().parse(message);
+
+            if (jsonObject.get("method").toString() == null) {
+                callbackList.get(Client.lastSentMethod).onMessageReceived(jsonObject);
+            } else {
+                callbackList.get(jsonObject.get("method").toString()).onMessageReceived(jsonObject);
+            }
         } catch (ParseException e) {
             e.printStackTrace();
         }
+    }
 
-        if (jsonObject.get("method").toString() == null) {
-            callbackList.get(Client.lastSentMethod).onMessageReceived(jsonObject);
-        } else {
-            callbackList.get(jsonObject.get("method").toString()).onMessageReceived(jsonObject);
-        }
+    public void send(JSONObject message){
+        Client.lastSentMethod = message.get("method").toString();
+        super.send(message.toString());
     }
 
     public void registerListener(){
@@ -165,40 +165,31 @@ public class Client extends TCPClient{
     }
 
     public void joinGame(){
-        lastSentMethod = "join";
-
         JSONObject jsonObject = new JSONObject();
 
         jsonObject.put("method", "join");
         jsonObject.put("username", username);
 
-        client.send(jsonObject.toString());
+        client.send(jsonObject);
     }
 
     public void leaveGame(){
-        lastSentMethod = "leave";
-
-        JSONObject jsonObject = new JSONObject();
-
-        jsonObject.put("method", "leave");
-        client.send(jsonObject.toString());
+        client.send((JSONObject) new JSONObject().put("method", "leave"));
     }
 
     public void readyUp(){
-        lastSentMethod = "readyUp";
-
-        JSONObject jsonObject = new JSONObject();
-
-        jsonObject.put("method", "ready");
-        client.send(jsonObject.toString());
+        client.send((JSONObject) new JSONObject().put("method", "ready"));
     }
 
     public void listClient(){
-        lastSentMethod = "client_address";
+        send((JSONObject) new JSONObject().put("method", "client_address"));
+    }
 
-        JSONObject jsonObject = new JSONObject();
+    public void paxosPrepareProposal(){
 
-        jsonObject.put("method", "client_address");
-        send(jsonObject.toString());
+    }
+
+    public void paxosAcceptProposal(){
+
     }
 }

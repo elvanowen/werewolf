@@ -23,7 +23,7 @@ public abstract class TCPClient implements Runnable{
         System.out.println("Just connected to " + socket.getRemoteSocketAddress());
     }
 
-    public static void send(String message){
+    public void send(String message){
         try {
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
 
