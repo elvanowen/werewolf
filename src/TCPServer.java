@@ -4,7 +4,7 @@ import java.util.*;
 
 public class TCPServer extends Thread {
     private ServerSocket serverSocket;
-    private ArrayList<Client> clientList = new ArrayList<>();
+    private ArrayList<Client> clientList = new ArrayList<Client>();
 
     public TCPServer(){
         this(8888);
@@ -69,7 +69,7 @@ public class TCPServer extends Thread {
         //called when client create socket conn
         public Client(TCPServer tcpServer, Socket socket){
             clientSocket = new ClientSocket(tcpServer, socket,this);
-            
+
             //set client address and port
             this.address = socket.getInetAddress().toString();
             this.port = socket.getPort();

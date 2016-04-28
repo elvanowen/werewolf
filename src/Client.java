@@ -8,6 +8,9 @@ import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Scanner;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 class WerewolfClient extends TCPClient{
     String lastSentMethod;
@@ -45,10 +48,9 @@ class WerewolfClient extends TCPClient{
 }
 
 public class Client{
+    static UDPServer udpServer;
     static WerewolfClient client;
     static ArrayList<JSONObject> clientList;
-    static int proposalSequenceNumber = 0;
-    static String highestKPUId = "0-0";
     static String username;
     static int playerID;
 
@@ -187,6 +189,15 @@ public class Client{
                         response.put("status", "rejected");
 
                         new UDPClient(remoteAddress, remotePort).send(response.toString());
+
+                        ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
+
+                        exec.schedule(new Runnable(){
+                            @Override
+                            public void run(){
+                                paxosPrepareProposal();
+                            }
+                        }, 3, TimeUnit.SECONDS);
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
@@ -238,7 +249,8 @@ public class Client{
         String targetAddress = reader.nextLine();
 
         if (targetAddress.equals("")){
-            targetAddress = "localhost";
+//            targetAddress = "localhost";
+            targetAddress = "10.5.22.49";
         }
 
         System.out.print("Enter server port [8888]: ");
@@ -292,44 +304,27 @@ public class Client{
     }
 
     public static void leaveGame(){
-        client.send((JSONObject) new JSONObject().put("method", "leave"));
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("method", "leave");
+
+        client.send(jsonObject.toString());
     }
 
     public static void readyUp(){
-        client.send((JSONObject) new JSONObject().put("method", "ready"));
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("method", "ready");
+
+        client.send(jsonObject.toString());
     }
 
     public static void listClient(){
-        client.send((JSONObject) new JSONObject().put("method", "client_address"));
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("method", "client_address");
+
+        client.send(jsonObject.toString());
     }
 
-    public static void paxosPrepareProposal() throws Exception {
-        JSONObject jsonObject = new JSONObject();
-        jsonObject.put("method", "prepare_proposal");
+    public static void chooseLeader(){
 
-        JSONArray proposalId =  new JSONArray();
-        proposalId.add(proposalSequenceNumber);
-        proposalId.add(playerID);
-
-        jsonObject.put("proposal_id", proposalId);
-
-        for (JSONObject client : clientList){
-            new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString())).send(jsonObject.toString());
-        }
-    }
-
-    public static void paxosAcceptProposal() throws Exception {
-        JSONObject jsonObject = new JSONObject();
-        jsonObject.put("method", "accept_proposal");
-
-        JSONArray proposalId =  new JSONArray();
-        proposalId.add(proposalSequenceNumber);
-        proposalId.add(playerID);
-
-        jsonObject.put("proposal_id", proposalId);
-
-        for (JSONObject client : clientList){
-            new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString())).send(jsonObject.toString());
-        }
     }
 }
