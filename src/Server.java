@@ -36,7 +36,7 @@ public class Server {
     private Game game;
     
     public Server(){
-        this.clientList = new HashMap<>();
+        this.clientList = new HashMap<String, TCPServer.Client>();
         this.game = new Game();
     }
     
@@ -121,7 +121,7 @@ public class Server {
     
     //return all werewolf friends
     public static  String[] getFriends(TCPServer.Client werewolf){
-        ArrayList<String> friends = new ArrayList<>();
+        ArrayList<String> friends = new ArrayList<String>();
         
         Iterator it = clientList.entrySet().iterator();
         while (it.hasNext()) {
