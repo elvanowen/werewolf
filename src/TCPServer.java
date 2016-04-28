@@ -2,10 +2,9 @@ import java.net.*;
 import java.io.*;
 import java.util.*;
 
-public class TCPServer implements Runnable {
-    ServerSocket serverSocket;
-    ArrayList<ClientSocket> clientSocketList = new ArrayList<ClientSocket>();
-    Thread thread;
+public class TCPServer extends Thread {
+    private ServerSocket serverSocket;
+    private ArrayList<Client> clientList = new ArrayList<>();
 
     public TCPServer(){
         this(8888);
@@ -15,7 +14,7 @@ public class TCPServer implements Runnable {
         try {
             serverSocket = new ServerSocket(port);
 
-            thread = new Thread(this);
+            Thread thread = new Thread(this);
             thread.start();
 //            thread.join();
         } catch (Exception e) {
@@ -30,10 +29,9 @@ public class TCPServer implements Runnable {
             try {
                 Socket _clientSocket = serverSocket.accept();
 
-                ClientSocket clientSocket = new ClientSocket(this, _clientSocket);
-                System.out.println("Before : " + clientSocketList.size());
-                clientSocketList.add(clientSocket);
-                System.out.println("After : " + clientSocketList.size());
+                Client client = new Client(this, _clientSocket);
+                clientList.add(client); // potential players
+                
             } catch(SocketTimeoutException s) {
                 System.out.println("Socket timed out!");
                 break;
@@ -43,40 +41,61 @@ public class TCPServer implements Runnable {
             }
         }
     }
-
-    public void onMessageReceived(String message){
-        System.out.println("onReceivedMessage : " + message);
-
-        broadcast(message + " toooo!!");
-//        send(clientSocketList, message + " toooo!!");
-
-
+    
+    public void onMessageReceived(Client client, String message){
+        System.out.println("on: " + message); 
+        Server.onMessageReceived(client, message); // pass to server
     }
-
-    public void broadcast(String message){
-        for (ClientSocket clientSocket: clientSocketList) {
-            System.out.println("Broadcasting !!");
-            System.out.println(clientSocket);
-
-            clientSocket.send(message);
+    
+    public void broadcast(HashMap<String, TCPServer.Client>clientList ,String message){
+        
+    }
+    
+    public void send(TCPServer.Client client, String message){
+        client.clientSocket.send(message);
+    }
+    
+    // client
+    public class Client{
+        int playerId;
+        int isAlive; // 0 or 1
+        String address;
+        int port;
+        String username;
+        String role;
+        String status; // "join", "ready"
+        ClientSocket clientSocket;
+        
+        //called when client create socket conn
+        public Client(TCPServer tcpServer, Socket socket){
+            clientSocket = new ClientSocket(tcpServer, socket,this);
+            
+            //set client address and port
+            this.address = socket.getInetAddress().toString();
+            this.port = socket.getPort();
+        }
+        
+        //called when client join game
+        void setClient(int playerId,String username, String role){
+            this.playerId = playerId;
+            this.isAlive = 1;
+            this.username = username;
+            this.role = role;
+            this.status = "join"; // set initial client status
         }
     }
-
-    public void send(ArrayList<ClientSocket> clientSocketList, String message){
-        for (ClientSocket clientSocket: clientSocketList) {
-            clientSocket.send(message);
-        }
-    }
-
+    
     private class ClientSocket implements Runnable {
         private Socket clientSocket = null;
         private Thread thread;
         private TCPServer server;
-
-        public ClientSocket(TCPServer server, Socket clientSocket){
+        private Client client; //reference to client
+        
+        public ClientSocket(TCPServer server, Socket clientSocket, Client client){
             this.server = server;
             this.clientSocket = clientSocket;
-
+            this.client = client;
+            
             System.out.println("Just connected to " + this.clientSocket.getRemoteSocketAddress());
 
             try {
@@ -96,7 +115,7 @@ public class TCPServer implements Runnable {
 
                     String inLine = null;
                     while (((inLine = br.readLine()) != null) && (!(inLine.equals("")))) {
-                        this.server.onMessageReceived(inLine);
+                          this.server.onMessageReceived(this.client,inLine);
                     }
                 } catch (Exception e) {
                     System.out.println(e);
