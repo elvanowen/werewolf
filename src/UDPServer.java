@@ -1,3 +1,5 @@
+import org.json.simple.parser.ParseException;
+
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 
@@ -30,10 +32,9 @@ public class UDPServer implements Runnable {
         } catch (Exception e){
             System.out.println(e);
         }
-
     }
 
-    public void onMessageReceived(String message){
+    public void onMessageReceived(String message) throws ParseException {
         System.out.println("onMessageReceived : " + message);
     }
 
