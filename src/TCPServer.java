@@ -48,7 +48,12 @@ public class TCPServer extends Thread {
     }
     
     public void broadcast(HashMap<String, TCPServer.Client>clientList ,String message){
-        
+        Iterator it = clientList.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry clientEntry = (Map.Entry)it.next();
+            TCPServer.Client client = (TCPServer.Client)clientEntry.getValue();
+            send(client, message);
+        }
     }
     
     public void send(TCPServer.Client client, String message){
