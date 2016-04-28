@@ -26,10 +26,11 @@ public class Server {
         public void start(){
             this.gameStatus = "playing";
             this.day = 1;
-            this.time = "day";
+            this.time = "night";
         }
     }
     
+    private static int minClients = 6; // minimum clients to play
     private static TCPServer tcpServer;
     private static  HashMap<String, TCPServer.Client> clientList; //(username, TCPServer.Client)
     private int clientReady; // num of clients ready
@@ -56,6 +57,22 @@ public class Server {
         return response;
     }
     
+    //client leave the game
+    public static JSONObject setClientLeave(String username){
+        JSONObject response = new JSONObject();
+        
+        if(clientList.containsKey(username)){
+            clientList.remove(username); // remove from client list
+            response.put("status", "ok");
+        }
+        else{
+            response.put("status", "fail");
+            response.put("desription", "client has not joined");
+        }
+        
+        return response;
+    }
+    
     public static JSONObject setClientReady(String username){
         JSONObject response = new JSONObject();
         
@@ -66,15 +83,15 @@ public class Server {
         }
         else{
             response.put("status", "error");
-            response.put("desription", "client not registered");
+            response.put("desription", "client has not joined");
         }
         
         return response;
     }
     
-    //check if all clients ready and >=6
+    //check if all clients ready and >= minClients
     public static boolean isAllClientsReady(){
-        if(clientList.size() < 6){
+        if(clientList.size() < minClients){
             return false; // not enough clients
         }
         else{
@@ -165,6 +182,11 @@ public class Server {
                     response = setClientJoin(client, username);
                     break;
                 }
+                case "leave":{
+                    String username = obj.get("username").toString();
+                    response = setClientLeave(username);
+                    break;
+                }
                 case "ready":{
                     response = setClientReady(client.username);
                     printResponse(response.toString());
@@ -182,8 +204,6 @@ public class Server {
                             JSONObject request = startGame(clientDest);
                             Server.tcpServer.send(clientDest,request.toString());
                             printRequest(request.toString());
-                            
-                            //wait for client response ???
                             
                             it.remove(); // avoids a ConcurrentModificationException
                         }
