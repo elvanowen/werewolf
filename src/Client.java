@@ -67,7 +67,6 @@ public class Client{
     public static void main(String args[]) throws Exception {
         registerListener();
         while (true) promptCommand();
-        JSONObject json = 
     }
 
     public static void registerListener(){
@@ -425,10 +424,10 @@ public class Client{
             String recap = "";
             //Vote pertama
             Vote firstVote = voteList.get(0);
-            recap = recap + "[" + "(" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + ")"; 
+            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]"; 
             for (Vote object: voteList) {
                 if(object.getPlayerId() != firstVote.getPlayerId()){
-                    recap = recap + ", (" + object.getPlayerId()  + ", " + object.getVoteCount() + ")";
+                    recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
                 }
             }
             recap = recap +"]";
@@ -441,8 +440,8 @@ public class Client{
                 jsonObject.put("vote_status", "1");
                 jsonObject.put("player_killed", player_to_kill.getPlayerId());
                 jsonObject.put("vote_result", recap);
-                //client.send(jsonObject.toString());
-                   System.out.println(jsonObject.toString());
+                client.send(jsonObject.toString());
+                //   System.out.println(jsonObject.toString());
             } else { //tidak ada majority terpilih
                 jsonObject.put("method","vote_result");
                 jsonObject.put("vote_status", "-1");
