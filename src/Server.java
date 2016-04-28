@@ -154,7 +154,7 @@ public class Server {
     }
     
     public static void giveRoles(){
-        //give roles (civilian or werewolf) to every client
+        //give roles (civilian or werewolf) to every tcpClient
         int numWerewolf = (int) ((double)clientList.size()/3);
         int numCivilian = clientList.size() - numWerewolf;
         int[] roles = new int[2];
@@ -198,7 +198,7 @@ public class Server {
     }
     
     public static JSONObject startGame(TCPServer.Client client){
-        //create request start game message for client
+        //create request start game message for tcpClient
         JSONObject request = new JSONObject();
         request.put("method", "start");
         request.put("time", "night");
@@ -266,7 +266,7 @@ public class Server {
                     
                     //check if game can start
                     if(isAllClientsReady()){
-                        //give role to every client
+                        //give role to every tcpClient
                         giveRoles();
                         //send start game to all clients
                         Iterator it = clientList.entrySet().iterator();

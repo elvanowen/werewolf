@@ -4,7 +4,7 @@ import java.util.*;
 
 public class TCPServer extends Thread {
     private ServerSocket serverSocket;
-    private ArrayList<Client> clientList = new ArrayList<>();
+    private ArrayList<Client> clientList = new ArrayList<Client>();
 
     public TCPServer(){
         this(8888);
@@ -23,7 +23,7 @@ public class TCPServer extends Thread {
     }
 
     public void run() {
-        System.out.println("Waiting for client on port " + serverSocket.getLocalPort() + "...");
+        System.out.println("Waiting for tcpClient on port " + serverSocket.getLocalPort() + "...");
 
         while(true) {
             try {
@@ -60,7 +60,7 @@ public class TCPServer extends Thread {
         client.clientSocket.send(message);
     }
     
-    // client
+    // tcpClient
     public class Client{
         int playerId;
         int isAlive; // 0 or 1
@@ -71,22 +71,22 @@ public class TCPServer extends Thread {
         String status; // "join", "ready"
         ClientSocket clientSocket;
         
-        //called when client create socket conn
+        //called when tcpClient create socket conn
         public Client(TCPServer tcpServer, Socket socket){
             clientSocket = new ClientSocket(tcpServer, socket,this);
-            
-            //set client address and port
+
+            //set tcpClient address and port
             this.address = socket.getInetAddress().toString();
             this.port = socket.getPort();
         }
         
-        //called when client join game
+        //called when tcpClient join game
         void setClient(int playerId,String username, String role){
             this.playerId = playerId;
             this.isAlive = 1;
             this.username = username;
             this.role = role;
-            this.status = "join"; // set initial client status
+            this.status = "join"; // set initial tcpClient status
         }
     }
     
@@ -94,7 +94,7 @@ public class TCPServer extends Thread {
         private Socket clientSocket = null;
         private Thread thread;
         private TCPServer server;
-        private Client client; //reference to client
+        private Client client; //reference to tcpClient
         
         public ClientSocket(TCPServer server, Socket clientSocket, Client client){
             this.server = server;
