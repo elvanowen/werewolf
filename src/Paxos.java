@@ -31,7 +31,7 @@ public class Paxos {
     ArrayList<JSONObject> clientList;
     ArrayList<JSONObject> preparePromiseList = new ArrayList<>();
     ArrayList<JSONObject> acceptPromiseList = new ArrayList<>();
-    String highestKPUId;
+    Integer[] highestKPUId = new Integer[2];
     OnLeaderChosenInterface onLeaderChosenCallback;
 
     public Paxos(PAXOS_ROLE role){
@@ -58,11 +58,13 @@ public class Paxos {
     }
 
     void setHighestKpuID(String sequenceNumber, String playerID){
-        this.highestKPUId = sequenceNumber + "/" + playerID;
+        this.highestKPUId[0] = Integer.parseInt(sequenceNumber);
+        this.highestKPUId[1] = Integer.parseInt(playerID);
+
     }
 
-    String[] getHighestKPUId(){
-        return this.highestKPUId.split("/");
+    Integer[] getHighestKPUId(){
+        return this.highestKPUId;
     }
 
     void sendPrepareProposal(){
@@ -113,9 +115,9 @@ public class Paxos {
 
     void onPreparePromiseReceived(JSONObject message, String remoteAddress, int remotePort){
         if (role == PAXOS_ROLE.ACCEPTOR){
-            String[] kpuId = getHighestKPUId();
+            Integer[] kpuId = getHighestKPUId();
 
-            if (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) > Integer.parseInt(kpuId[0]) || (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) == Integer.parseInt(kpuId[0]) && Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString()) > Integer.parseInt(kpuId[1]))) {
+            if (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) > kpuId[0] || (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) == kpuId[0] && Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString()) > kpuId[1])) {
                 try {
                     JSONObject response = new JSONObject();
                     response.put("status", "ok");
@@ -197,9 +199,9 @@ public class Paxos {
 
     void onAcceptPromiseReceived(JSONObject message, String remoteAddress, int remotePort){
         if (role == PAXOS_ROLE.ACCEPTOR){
-            String[] kpuId = getHighestKPUId();
+            Integer[] kpuId = getHighestKPUId();
 
-            if (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) > Integer.parseInt(kpuId[0]) || (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) == Integer.parseInt(kpuId[0]) && Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString()) > Integer.parseInt(kpuId[1]))) {
+            if (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) > kpuId[0] || (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) == kpuId[0] && Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString()) > kpuId[1])) {
                 try {
                     JSONObject response = new JSONObject();
                     response.put("status", "ok");
@@ -239,7 +241,7 @@ public class Paxos {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("method", "prepare_proposal");
         jsonObject.put("kpu_id", getKpuID());
-        jsonObject.put("Description", "Kpu is selected");
+        jsonObject.put("description", "Kpu is selected");
 
         for (JSONObject client : clientList){
             try {
