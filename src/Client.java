@@ -4,6 +4,7 @@ import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Scanner;
 import java.util.logging.Level;
@@ -61,7 +62,15 @@ class WerewolfUDPServer extends UDPServer{
             jsonObject = (JSONObject) new JSONParser().parse(message);
 
             if (jsonObject.get("method").toString() == null) {
-                callbackList.get(this.lastSentMethod).onMessageReceived(jsonObject, remoteAddress, remotePort);
+                if (jsonObject.get("proposal_id") != null && jsonObject.get("kpu_id") != null) {
+//                    For acceptor receiving accept proposal since no signal is sent before leader proposing
+                    callbackList.get("accept_proposal").onMessageReceived(jsonObject, remoteAddress, remotePort);
+                } else if (jsonObject.get("proposal_id") != null) {
+//                    For acceptor receiving prepare proposal since no signal is sent before leader proposing
+                    callbackList.get("prepare_proposal").onMessageReceived(jsonObject, remoteAddress, remotePort);
+                } else {
+                    callbackList.get(this.lastSentMethod).onMessageReceived(jsonObject, remoteAddress, remotePort);
+                }
             } else {
                 callbackList.get(jsonObject.get("method").toString()).onMessageReceived(jsonObject, remoteAddress, remotePort);
             }
@@ -82,6 +91,7 @@ public class Client{
     static String username;
     static int playerID;
     static int kpuID;
+    static Paxos paxos;
     
     static ArrayList<Vote> voteList;
     static int numOfPlayer;
@@ -168,7 +178,7 @@ public class Client{
 
             @Override
             public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
-                Paxos.onPreparePromiseReceived(message, remoteAddress, remotePort);
+                paxos.onPreparePromiseReceived(message, remoteAddress, remotePort);
             }
         });
 
@@ -180,7 +190,7 @@ public class Client{
 
             @Override
             public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
-                Paxos.onAcceptPromiseReceived(message, remoteAddress, remotePort);
+                paxos.onAcceptPromiseReceived(message, remoteAddress, remotePort);
             }
         });
 
@@ -200,6 +210,38 @@ public class Client{
             @Override
             public void onMessageReceived(JSONObject response) {
                 tcpClient.send(new JSONObject().put("status", "ok").toString());
+
+                if (response.get("time") == "day"){
+                    ArrayList<Integer> playerIds = new ArrayList<Integer>();
+
+                    for (JSONObject client: clientList){
+                        playerIds.add(Integer.parseInt(client.get("player_id").toString()));
+                    }
+
+                    Collections.sort(playerIds);
+
+                    if (playerID == playerIds.get(0) || playerID == playerIds.get(1)) {
+                        paxos = new Paxos(PAXOS_ROLE.LEADER);
+                        paxos.setPlayerID(playerID);
+                        paxos.setClientList(clientList);
+                        paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
+
+                            @Override
+                            public void onLeaderChosen(int kpuId) {
+                                killWerewolfVote(kpuId);
+                            }
+                        });
+
+                        paxos.sendPrepareProposal();
+                    } else {
+                        paxos = new Paxos(PAXOS_ROLE.ACCEPTOR);
+                        paxos.setPlayerID(playerID);
+                        paxos.setClientList(clientList);
+                    }
+                } else if (response.get("time") == "night"){
+                    int kpuId = paxos.getKpuID();
+//                    killCivilianVote(kpuId);
+                }
             }
 
             @Override
@@ -323,13 +365,8 @@ public class Client{
 
         tcpClient.send(jsonObject.toString());
     }
-
-    public static void chooseLeader(){
-
-    }
     
-    
-    public void killWerewolfVote(){
+    public static void killWerewolfVote(int kpuID){
         //send vote to KPU for all non-KPU
         if (playerID != kpuID){
             //tcpClient dan werewolf
