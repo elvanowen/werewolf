@@ -226,7 +226,7 @@ public class Server {
     
     public static void giveRoles(){
         //give roles (civilian or werewolf) to every tcpClient
-        int numWerewolf = (int) ((double)clientList.size()/3);
+        int numWerewolf = (int) (long) ((double)clientList.size()/3);
         int numCivilian = clientList.size() - numWerewolf;
         int[] roles = new int[2];
         roles[0] = numWerewolf;
@@ -410,7 +410,7 @@ public class Server {
                 case "join":{
                     String username = obj.get("username").toString();
                     String udp_address = obj.get("udp_address").toString();
-                    int udp_port = (int) obj.get("udp_port");
+                    int udp_port = (int) (long) obj.get("udp_port");
                     response = setClientJoin(client, username, udp_address, udp_port);
                     break;
                 }
@@ -450,7 +450,7 @@ public class Server {
                     break;
                 }
                 case "accepted_proposal":{
-                    int kpu_id = (int) obj.get("kpu_id");
+                    int kpu_id = (int) (long) obj.get("kpu_id");
                     response = clientAcceptedProposal(kpu_id);
                     Server.tcpServer.send(client,response.toString());
                     
@@ -466,9 +466,9 @@ public class Server {
                     return;
                 }
                 case "vote_result_civilian":{
-                    int vote_status = (int) obj.get("vote_status");
+                    int vote_status = (int) (long) obj.get("vote_status");
                     if(vote_status == 1){
-                        int player_killed = (int) obj.get("player_killed");
+                        int player_killed = (int) (long) obj.get("player_killed");
                         if(game.numFailVoteCivilian > 0)
                             game.numFailVoteCivilian =0; //reset failed vote counter
                         
@@ -504,9 +504,9 @@ public class Server {
                     return;
                 }
                 case "vote_result_werewolf":{
-                    int vote_status = (int) obj.get("vote_status");
+                    int vote_status = (int) (long) obj.get("vote_status");
                     if(vote_status == 1){
-                        int player_killed = (int) obj.get("player_killed");
+                        int player_killed = (int) (long) obj.get("player_killed");
                         response = infoWerewolfKilled(player_killed);
                         Server.tcpServer.send(client,response.toString());
                     }
