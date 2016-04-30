@@ -33,6 +33,7 @@ public class Paxos {
     ArrayList<JSONObject> acceptPromiseList = new ArrayList<>();
     Integer[] highestKPUId = new Integer[2];
     OnLeaderChosenInterface onLeaderChosenCallback;
+    TCPClient serverSocket;
 
     public Paxos(PAXOS_ROLE role){
         this.role = role;
@@ -63,12 +64,21 @@ public class Paxos {
 
     }
 
+    void setServerSocket(TCPClient client){
+        this.serverSocket = client;
+    }
+
     Integer[] getHighestKPUId(){
         return this.highestKPUId;
     }
 
     void sendPrepareProposal(){
         state = PAXOS_STATE.PREPARE;
+
+//        Reset all value
+        preparePromiseList = new ArrayList<>();
+        acceptPromiseList = new ArrayList<>();
+        highestKPUId = new Integer[2];
 
         if (role == PAXOS_ROLE.LEADER){
             JSONObject jsonObject = new JSONObject();
@@ -210,7 +220,7 @@ public class Paxos {
                     new UDPClient(remoteAddress, remotePort).send(response.toString());
 
                     setHighestKpuID(((JSONArray) message.get("proposal_id")).get(0).toString(), ((JSONArray) message.get("proposal_id")).get(1).toString());
-                    setKpuID(Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString()));
+                    sendToLearner();
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -229,8 +239,8 @@ public class Paxos {
             acceptPromiseList.add(message);
 
             if (acceptPromiseList.size() > (clientList.size() - 2)/2){
-                setKpuID(playerID);
-                sendToLearner();
+//                setKpuID(playerID);
+                state = PAXOS_STATE.DONE;
             }
         }
     }
@@ -243,15 +253,7 @@ public class Paxos {
         jsonObject.put("kpu_id", getKpuID());
         jsonObject.put("description", "Kpu is selected");
 
-        for (JSONObject client : clientList){
-            try {
-                new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString())).send(jsonObject.toString());
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-
-        onLeaderChosenCallback.onLeaderChosen(getKpuID());
+        this.serverSocket.send(jsonObject.toString());
     }
 
     interface OnLeaderChosenInterface{

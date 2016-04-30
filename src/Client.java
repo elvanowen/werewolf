@@ -90,7 +90,6 @@ public class Client{
     static ArrayList<JSONObject> clientList;
     static String username;
     static int playerID;
-    static int kpuID;
     static Paxos paxos;
     
     static ArrayList<Vote> voteList;
@@ -194,6 +193,20 @@ public class Client{
             }
         });
 
+        tcpClient.registerListener("kpu_selected", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject response) {
+                tcpClient.send(new JSONObject().put("status", "ok").toString());
+
+                paxos.setKpuID(Integer.parseInt(response.get("kpu_id").toString()));
+                paxos.onLeaderChosenCallback.onLeaderChosen(paxos.getKpuID());
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            }
+        });
+
         tcpClient.registerListener("start", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
@@ -224,23 +237,26 @@ public class Client{
                         paxos = new Paxos(PAXOS_ROLE.LEADER);
                         paxos.setPlayerID(playerID);
                         paxos.setClientList(clientList);
-                        paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
-
-                            @Override
-                            public void onLeaderChosen(int kpuId) {
-                                killWerewolfVote(kpuId);
-                            }
-                        });
-
+                        paxos.setServerSocket(tcpClient);
                         paxos.sendPrepareProposal();
                     } else {
                         paxos = new Paxos(PAXOS_ROLE.ACCEPTOR);
                         paxos.setPlayerID(playerID);
                         paxos.setClientList(clientList);
+                        paxos.setServerSocket(tcpClient);
                     }
+
+                    paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
+
+                        @Override
+                        public void onLeaderChosen(int kpuId) {
+                            if (paxos.role == PAXOS_ROLE.ACCEPTOR){
+                                killWerewolfVote(kpuId);
+                            }
+                        }
+                    });
                 } else if (response.get("time") == "night"){
-                    int kpuId = paxos.getKpuID();
-//                    killCivilianVote(kpuId);
+//                    killCivilianVote(paxos.getKpuID());
                 }
             }
 
@@ -368,7 +384,7 @@ public class Client{
     
     public static void killWerewolfVote(int kpuID){
         //send vote to KPU for all non-KPU
-        if (playerID != kpuID){
+        if (playerID != paxos.getKpuID()){
             //tcpClient dan werewolf
             
             Scanner reader = new Scanner(System.in);  // Reading from System.in
