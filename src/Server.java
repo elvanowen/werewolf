@@ -28,7 +28,6 @@ public class Server {
         
         public Game(){
             this.gameStatus = "not playing";
-            resetLeader();
         }
         
         public void resetLeader(){
@@ -77,9 +76,10 @@ public class Server {
         
         public void start(){
             this.gameStatus = "playing";
-            this.days = 0;
-            this.time = "night";
+            this.days = 1;
+            this.time = "day";
             numFailVoteCivilian = 0;
+            resetLeader();
         }
         
         public void changePhase(){
@@ -99,7 +99,7 @@ public class Server {
     }
     
     //attributes
-    private static int minClients = 1; // minimum clients to play
+    private static int minClients = 6; // minimum clients to play
     private static TCPServer tcpServer;
     private static  HashMap<String, TCPServer.Client> clientList; //(username, TCPServer.Client)
     private int clientReady; // num of clients ready
@@ -263,10 +263,10 @@ public class Server {
     }
     
     public static JSONObject startGame(TCPServer.Client client){
-        //create request start game message for tcpClient
+        //create request start game message for client
         JSONObject request = new JSONObject();
         request.put("method", "start");
-        request.put("time", "night");
+        request.put("time", game.time);
         request.put("role", client.role);
         if(client.role.equals("werewolf"))
             request.put("friend",(Object)getFriends(client));
@@ -293,7 +293,33 @@ public class Server {
         return response;
     }
     
+    public static JSONObject voteCommand(){
+        JSONObject response = new JSONObject();
+        response.put("method", "vote_now");
+        response.put("phase",game.time);
+        
+        return response;
+    }
+    
     public static JSONObject infoCivilianKilled(int playerId){
+        JSONObject response = new JSONObject();
+        
+        //find client with player_id = playerId
+        Iterator it = clientList.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry clientEntry = (Map.Entry)it.next();
+            TCPServer.Client client = (TCPServer.Client)clientEntry.getValue();
+            if(client.playerId == playerId){
+                client.isAlive = 0;
+            }
+        }
+        
+        response.put("status", "ok");
+        response.put("description", "");
+        return response;
+    }
+    
+    public static JSONObject infoWerewolfKilled(int playerId){
         JSONObject response = new JSONObject();
         
         //find client with player_id = playerId
@@ -358,11 +384,14 @@ public class Server {
                     if(isAllClientsReady()){
                         //give role to every tcpClient
                         giveRoles();
+                        
+                        game.start();// set game start
                         //send start game to all clients
                         Iterator it = clientList.entrySet().iterator();
                         while (it.hasNext()) {
                             Map.Entry clientEntry = (Map.Entry)it.next();
                             TCPServer.Client clientDest = (TCPServer.Client)clientEntry.getValue();
+                            
                             JSONObject request = startGame(clientDest);
                             Server.tcpServer.send(clientDest,request.toString());
                             printRequest(request.toString());
@@ -384,30 +413,61 @@ public class Server {
                     //check if leader has been decided
                     if(game.kpuId != -1){
                         response = kpuSelected();
-                        Server.tcpServer.broadcast(clientList,response.toString()); // broadcast to every client
+                        Server.tcpServer.broadcast(clientList,response.toString()); // broadcast leader to every client
+                        
+                        response = voteCommand();
+                        Server.tcpServer.broadcast(clientList,response.toString()); // broadcast vote command to every client
                     }
                     
                     return;
                 }
                 case "vote_result_civilian":{
                     int vote_status = (int) obj.get("vote_status");
-                    int player_killed = (int) obj.get("player_killed");
                     if(vote_status == 1){
+                        int player_killed = (int) obj.get("player_killed");
+                        if(game.numFailVoteCivilian > 0)
+                            game.numFailVoteCivilian =0; //reset failed vote counter
+                        
                         response = infoCivilianKilled(player_killed);
+                        Server.tcpServer.send(client,response.toString());
+                        
                     }
                     else{ //vote_status == -1
                         if(game.numFailVoteCivilian == 0){
                             game.numFailVoteCivilian++;
-                            response = obj;
-                            Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
+                            response = voteCommand();
+                            Server.tcpServer.broadcast(clientList,response.toString()); //broadcast vote command (re-vote) to all clients
                             return;
                         }
                         else{
                             game.numFailVoteCivilian = 0;
-                            response = changePhase();
                         }
                     }
-                    break;
+                    response = changePhase(); //change to night phase
+                    Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
+
+                    response = voteCommand();
+                    Server.tcpServer.broadcast(clientList,response.toString()); //broadcast vote command to all clients
+                    
+                    return;
+                }
+                case "vote_result_werewolf":{
+                    int vote_status = (int) obj.get("vote_status");
+                    if(vote_status == 1){
+                        int player_killed = (int) obj.get("player_killed");
+                        response = infoWerewolfKilled(player_killed);
+                        Server.tcpServer.send(client,response.toString());
+                    }
+                    else{ //vote_status == -1
+                        response = voteCommand();
+                        Server.tcpServer.broadcast(clientList,response.toString()); //broadcast vote command (re-vote) to all clients
+                        
+                        return;
+                    }
+                    response = changePhase(); //change to day phase
+                    Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
+                    
+                    return;
                 }
                 default:{ // wrong req
                     response.put("status", "error");
