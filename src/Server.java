@@ -1,5 +1,7 @@
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -11,34 +13,83 @@ import org.json.simple.parser.ParseException;
 
 public class Server {
     
-    
-    
     //game
     private class Game{
         String gameStatus; // "not playing" , "playing"
         int days; // number of days played
         String time; // "day", "night"
         
-        int numFailVoteWerewolf; // number of current failed vote for killing werewolf
+        int kpuId; //leader ID
+        int numAcceptedProposal; //number of acc. proposal received from clients, leader decided when this number achieved client majority
+        int[] acceptedProposalResult; // vote result for leader election
+        int[] proposersId; // client ID that become proposers
+        
+        int numFailVoteCivilian; // number of current failed vote for killing werewolf (on day time)
         
         public Game(){
             this.gameStatus = "not playing";
+            resetLeader();
+        }
+        
+        public void resetLeader(){
+            this.kpuId = -1;
+            this.numAcceptedProposal = 0;
+            this.acceptedProposalResult = new int[2];
+            this.acceptedProposalResult[0] = 0;
+            this.acceptedProposalResult[1] = 0;
+            this.proposersId = new int[2];
+            this.setProposersId();
+        }
+        
+        public void setProposersId(){
+            int[] clientsId = new int[clientList.size()];
+            int i = 0;    
+            Iterator it = clientList.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry clientEntry = (Map.Entry)it.next();
+                TCPServer.Client client = (TCPServer.Client)clientEntry.getValue();
+                clientsId[i++] = client.playerId;
+            }
+            
+            Arrays.sort(clientsId);//sort
+            this.proposersId[0]=clientsId[clientsId.length-2];
+            this.proposersId[1]=clientsId[clientsId.length-1];
+        }
+        
+        public void voteLeader(int id){
+            for(int i=0; i<proposersId.length; i++){
+                if(proposersId[i] == id){
+                    acceptedProposalResult[i]++;
+                    numAcceptedProposal++;
+                    break;
+                }
+            }
+            if(numAcceptedProposal == clientList.size())
+                setKpuId(); //leader decided
+        }
+        
+        public void setKpuId(){
+            if(acceptedProposalResult[0] > acceptedProposalResult[1])
+                this.kpuId = this.proposersId[0];
+            else if(acceptedProposalResult[1] > acceptedProposalResult[0])
+                this.kpuId = this.proposersId[1];
         }
         
         public void start(){
             this.gameStatus = "playing";
             this.days = 0;
             this.time = "night";
-            numFailVoteWerewolf = 0;
+            numFailVoteCivilian = 0;
         }
         
         public void changePhase(){
-            if(this.time.equals("day")){
+            if(this.time.equals("day")){// change to night
                 this.time = "night";
             }
-            else{
+            else{ // change to day
                 this.time = "day";
                 this.days++;
+                resetLeader();
             }
         }
         
@@ -47,6 +98,7 @@ public class Server {
         }
     }
     
+    //attributes
     private static int minClients = 1; // minimum clients to play
     private static TCPServer tcpServer;
     private static  HashMap<String, TCPServer.Client> clientList; //(username, TCPServer.Client)
@@ -58,15 +110,15 @@ public class Server {
         game = new Game();
     }
     
-    public static JSONObject setClientJoin(TCPServer.Client client, String username){
+    public static JSONObject setClientJoin(TCPServer.Client client, String username, String udp_address, int udp_port){
         JSONObject response = new JSONObject();
         
         if(!clientList.containsKey(username)){
             if(!Server.game.gameStatus.equals("playing")){
-                client.username = username;
+                client.setClientJoin(clientList.size(), udp_address, udp_port, username);
                 clientList.put(username, client);
                 response.put("status", "ok");
-                response.put("player_id", clientList.size()-1);
+                response.put("player_id", client.playerId);
             }
             else{ // is playing
                 response.put("status", "fail");
@@ -112,14 +164,18 @@ public class Server {
         return response;
     }
     
+    //return client in JSON format
     public static JSONObject getClient(TCPServer.Client client){
         JSONObject response = new JSONObject();
         response.put("played_id",client.playerId);
         response.put("is_alive",client.isAlive);
-        response.put("address",client.address);
-        response.put("port",client.port);
+        response.put("address",client.udpAddress);
+        response.put("port",client.udpPort);
         response.put("username",client.username);
-        response.put("role",client.role);
+        
+        //put role if client not alive
+        if(client.isAlive == 0)
+            response.put("role",client.role);
         
         return response;
     }
@@ -128,6 +184,15 @@ public class Server {
         JSONObject response = new JSONObject();
         response.put("status", "ok");
         
+        JSONArray clientArr = new JSONArray();
+        Iterator it = clientList.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry clientEntry = (Map.Entry)it.next();
+            TCPServer.Client client = (TCPServer.Client)clientEntry.getValue();
+            clientArr.add(getClient(client));
+        }
+        
+        response.put("clients", clientArr);
         return response;
     }
     
@@ -211,7 +276,24 @@ public class Server {
         return request;
     }
     
-    public static JSONObject infoWerewolfKilled(int playerId){
+    public static JSONObject clientAcceptedProposal(int kpuId){
+        JSONObject response = new JSONObject();
+        game.voteLeader(kpuId);
+        
+        response.put("status", "ok");
+        response.put("description", "");
+        return response;
+    }
+    
+    public static JSONObject kpuSelected(){
+        JSONObject response = new JSONObject();
+        response.put("method", "kpu_selected");
+        response.put("kpu_id", game.kpuId);
+        
+        return response;
+    }
+    
+    public static JSONObject infoCivilianKilled(int playerId){
         JSONObject response = new JSONObject();
         
         //find client with player_id = playerId
@@ -246,12 +328,20 @@ public class Server {
         JSONObject response = new JSONObject();
         try {
             JSONObject obj = (JSONObject)parser.parse(message);
+            
+            //check if receive status
+            if(obj.containsKey("status")){
+                return; //ignore
+            }
+            
             String method = obj.get("method").toString(); // get method
             
             switch(method){
                 case "join":{
                     String username = obj.get("username").toString();
-                    response = setClientJoin(client, username);
+                    String udp_address = obj.get("udp_address").toString();
+                    int udp_port = (int) obj.get("udp_port");
+                    response = setClientJoin(client, username, udp_address, udp_port);
                     break;
                 }
                 case "leave":{
@@ -286,21 +376,34 @@ public class Server {
                     response = getClientList();
                     break;
                 }
-                case "vote_result_werewolf":{
+                case "accepted_proposal":{
+                    int kpu_id = (int) obj.get("kpu_id");
+                    response = clientAcceptedProposal(kpu_id);
+                    Server.tcpServer.send(client,response.toString());
+                    
+                    //check if leader has been decided
+                    if(game.kpuId != -1){
+                        response = kpuSelected();
+                        Server.tcpServer.broadcast(clientList,response.toString()); // broadcast to every client
+                    }
+                    
+                    return;
+                }
+                case "vote_result_civilian":{
                     int vote_status = (int) obj.get("vote_status");
                     int player_killed = (int) obj.get("player_killed");
                     if(vote_status == 1){
-                        response = infoWerewolfKilled(player_killed);
+                        response = infoCivilianKilled(player_killed);
                     }
                     else{ //vote_status == -1
-                        if(game.numFailVoteWerewolf == 0){
-                            game.numFailVoteWerewolf++;
+                        if(game.numFailVoteCivilian == 0){
+                            game.numFailVoteCivilian++;
                             response = obj;
                             Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
                             return;
                         }
                         else{
-                            game.numFailVoteWerewolf = 0;
+                            game.numFailVoteCivilian = 0;
                             response = changePhase();
                         }
                     }

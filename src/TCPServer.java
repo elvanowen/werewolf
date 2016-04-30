@@ -43,7 +43,7 @@ public class TCPServer extends Thread {
     }
     
     public void onMessageReceived(Client client, String message){
-        System.out.println("on: " + message); 
+        System.out.println("received: " + message); 
         Server.onMessageReceived(client, message); // pass to server
     }
     
@@ -64,8 +64,8 @@ public class TCPServer extends Thread {
     public class Client{
         int playerId;
         int isAlive; // 0 or 1
-        String address;
-        int port;
+        String udpAddress;
+        int udpPort;
         String username;
         String role;
         String status; // "join", "ready"
@@ -75,18 +75,16 @@ public class TCPServer extends Thread {
         public Client(TCPServer tcpServer, Socket socket){
             clientSocket = new ClientSocket(tcpServer, socket,this);
 
-            //set tcpClient address and port
-            this.address = socket.getInetAddress().toString();
-            this.port = socket.getPort();
         }
         
-        //called when tcpClient join game
-        void setClient(int playerId,String username, String role){
+        //called when client join game
+        void setClientJoin(int playerId, String udpAddress, int udpPort, String username){
             this.playerId = playerId;
-            this.isAlive = 1;
+            this.isAlive = 1;// set to alive
+            this.udpAddress = udpAddress;
+            this.udpPort = udpPort;
             this.username = username;
-            this.role = role;
-            this.status = "join"; // set initial tcpClient status
+            this.status = "join"; // set initial client status
         }
     }
     
