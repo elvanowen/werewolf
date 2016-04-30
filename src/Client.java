@@ -3,6 +3,8 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -49,8 +51,8 @@ class WerewolfUDPServer extends UDPServer{
     String lastSentMethod;
     static HashMap<String, OnMessageResponseInterface> callbackList = new HashMap<>();
 
-    public WerewolfUDPServer() {
-        super();
+    public WerewolfUDPServer(int port) {
+        super(port);
     }
 
     @Override
@@ -85,19 +87,20 @@ class WerewolfUDPServer extends UDPServer{
 }
 
 public class Client{
-    static WerewolfUDPServer udpClient = new WerewolfUDPServer();
+    static WerewolfUDPServer udpServer;
     static WerewolfTCPClient tcpClient;
     static ArrayList<JSONObject> clientList;
     static String username;
     static int playerID;
     static Paxos paxos;
-    
+
     static ArrayList<Vote> voteList;
     static int numOfPlayer;
     static int numOfWerewolf;
     static int numOfVote=0;
 
     static {
+        promptLocalPort();
         promptServerAddress();
     }
 
@@ -124,10 +127,6 @@ public class Client{
         tcpClient.registerListener("ready", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
-                if (response.get("status") == "ok") {
-                    String description = response.get("desription").toString();
-                    System.out.println(description);
-                }
             }
 
             @Override
@@ -251,12 +250,12 @@ public class Client{
                         @Override
                         public void onLeaderChosen(int kpuId) {
                             if (paxos.role == PAXOS_ROLE.ACCEPTOR){
-                                killWerewolfVote(kpuId);
+                                killCivilianVote(kpuId);
                             }
                         }
                     });
                 } else if (response.get("time") == "night"){
-//                    killCivilianVote(paxos.getKpuID());
+                    killWerewolfVote(paxos.getKpuID());
                 }
             }
 
@@ -277,8 +276,8 @@ public class Client{
 
             }
         });
-        
-        udpClient.registerListener("vote_werewolf", new OnMessageResponseInterface() {
+
+        udpServer.registerListener("vote_werewolf", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
             }
@@ -286,11 +285,11 @@ public class Client{
             @Override
             public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
                 infoWerewolfKilled(Integer.parseInt(message.get("player_id").toString()));
-                
+
                 try {
                     JSONObject response = new JSONObject();
-                    response.put("status", "fail");
-                    response.put("status", "rejected");
+                    response.put("status", "ok");
+                    response.put("description", "");
 
                     new UDPClient(remoteAddress, remotePort).send(response.toString());
                 } catch (Exception e) {
@@ -298,8 +297,8 @@ public class Client{
                 }
             }
         });
-        
-        udpClient.registerListener("vote_civilian", new OnMessageResponseInterface() {
+
+        udpServer.registerListener("vote_civilian", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
             }
@@ -307,11 +306,11 @@ public class Client{
             @Override
             public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
                 infoCivilianKilled(Integer.parseInt(message.get("player_id").toString()));
-                
+
                 try {
                     JSONObject response = new JSONObject();
-                    response.put("status", "fail");
-                    response.put("status", "rejected");
+                    response.put("status", "ok");
+                    response.put("description", "");
 
                     new UDPClient(remoteAddress, remotePort).send(response.toString());
                 } catch (Exception e) {
@@ -319,6 +318,22 @@ public class Client{
                 }
             }
         });
+    }
+
+    public static void promptLocalPort(){
+        Scanner reader = new Scanner(System.in);  // Reading from System.in
+
+        System.out.print("Enter local port [7777]: ");
+        String _targetPort = reader.nextLine();
+        int targetPort;
+
+        if (!_targetPort.equals("")){
+            targetPort = Integer.parseInt(_targetPort);
+        } else {
+            targetPort = 7777;
+        }
+
+        udpServer = new WerewolfUDPServer(targetPort);
     }
 
     public static void promptServerAddress(){
@@ -379,7 +394,17 @@ public class Client{
         jsonObject.put("method", "join");
         jsonObject.put("username", username);
 
-        tcpClient.send(jsonObject);
+        InetAddress ip = null;
+        try {
+            ip = InetAddress.getLocalHost();
+
+            jsonObject.put("udp_address", ip.getHostAddress());
+            jsonObject.put("udp_port", udpServer.getListenPort());
+
+            tcpClient.send(jsonObject);
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        }
     }
 
     public static void leaveGame(){
@@ -403,7 +428,7 @@ public class Client{
         tcpClient.send(jsonObject.toString());
     }
 
-    public static void killWerewolfVote(int kpuID){     
+    public static void killWerewolfVote(int kpuID){
         Scanner reader = new Scanner(System.in);  // Reading from System.in
         int playerIDVote = reader.nextInt();
 
@@ -411,16 +436,24 @@ public class Client{
 
         jsonObject.put("method","vote_werewolf");
         jsonObject.put("player_id", playerIDVote);
-        UDPClient udpClient = new UDPClient();
 
-        try {
-            udpClient.send(jsonObject.toString());
-        } catch (Exception ex) {
-            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+
+        UDPClient udpClient;
+
+        for (JSONObject client: clientList){
+            if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
+                udpClient = new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString()));
+
+                try {
+                    udpClient.send(jsonObject.toString());
+                } catch (Exception ex) {
+                    Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
         }
     }
 
-    
+
     public static void infoWerewolfKilled(int player_id){
         boolean added = false;
         numOfVote++;
@@ -460,17 +493,17 @@ public class Client{
             String recap = "";
             //Vote pertama
             Vote firstVote = voteList.get(0);
-            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]"; 
+            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]";
             for (Vote object: voteList) {
                 if(object.getPlayerId() != firstVote.getPlayerId()){
                     recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
                 }
             }
             recap = recap +"]";
-            
+
             JSONObject jsonObject = new JSONObject();
 
-            //rekapitulasi selesai  
+            //rekapitulasi selesai
             if (majority_selected){
                 jsonObject.put("method","vote_result_werewolf");
                 jsonObject.put("vote_status", "1");
@@ -488,7 +521,7 @@ public class Client{
             voteList.clear(); //reset list of vote
         }
     }
-    
+
     public static void killCivilianVote(int kpuID){
         Scanner reader = new Scanner(System.in);  // Reading from System.in
         int playerIDVote = reader.nextInt();
@@ -497,15 +530,22 @@ public class Client{
 
         jsonObject.put("method","vote_civilian");
         jsonObject.put("player_id", playerIDVote);
-        UDPClient udpClient = new UDPClient();
 
-        try {
-            udpClient.send(jsonObject.toString());
-        } catch (Exception ex) {
-            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+        UDPClient udpClient;
+
+        for (JSONObject client: clientList){
+            if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
+                udpClient = new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString()));
+
+                try {
+                    udpClient.send(jsonObject.toString());
+                } catch (Exception ex) {
+                    Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
         }
     }
-    
+
     public static void infoCivilianKilled(int player_id){
         boolean added = false;
         numOfVote++;
@@ -545,17 +585,17 @@ public class Client{
             String recap = "";
             //Vote pertama
             Vote firstVote = voteList.get(0);
-            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]"; 
+            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]";
             for (Vote object: voteList) {
                 if(object.getPlayerId() != firstVote.getPlayerId()){
                     recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
                 }
             }
             recap = recap +"]";
-            
+
             JSONObject jsonObject = new JSONObject();
 
-            //rekapitulasi selesai  
+            //rekapitulasi selesai
             if (majority_selected){
                 jsonObject.put("method","vote_result_civilian");
                 jsonObject.put("vote_status", "1");
@@ -573,14 +613,7 @@ public class Client{
             voteList.clear(); //reset list of vote
         }
     }
-    
-    
-    
-    
-    
-    
-    }
-    
+}
 
 class Vote{
     private int playerId;

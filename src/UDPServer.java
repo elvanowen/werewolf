@@ -36,6 +36,10 @@ public abstract class UDPServer implements Runnable {
         }
     }
 
+    public int getListenPort(){
+        return this.listenPort;
+    }
+
     public abstract void onMessageReceived(String message, String remoteAddress, int remotePort);
 
     public void run(){
