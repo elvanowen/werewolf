@@ -26,6 +26,8 @@ public class Server {
         
         int numFailVoteCivilian; // number of current failed vote for killing werewolf (on day time)
         
+        String winner;// werewolf or civilian
+        
         public Game(){
             this.gameStatus = "not playing";
         }
@@ -91,6 +93,10 @@ public class Server {
                 this.days++;
                 resetLeader();
             }
+        }
+        
+        public void setWinner(String winner){
+            this.winner = winner;
         }
         
         public void finish(){
@@ -349,6 +355,44 @@ public class Server {
         return response;
     }
     
+    public static boolean isGameOver(){
+        int numCivilian = 0;
+        int numWerewolf = 0;
+        Iterator it = clientList.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry clientEntry = (Map.Entry)it.next();
+            TCPServer.Client client = (TCPServer.Client)clientEntry.getValue();
+            if(client.isAlive == 1){
+                if(client.role.equals("civilian"))
+                    numCivilian++;
+                else if(client.role.equals("werewolf"))
+                    numWerewolf++;
+            }
+        }
+        
+        //check if game is over
+        if(numWerewolf == 0){
+            game.setWinner("civilian");
+            return true;
+        }
+        else if(numWerewolf == numCivilian){
+            game.setWinner("werewolf");
+            return true;
+        }
+        else
+            return false;
+    }
+    
+    public static JSONObject gameOver(){
+        JSONObject response = new JSONObject();
+        game.finish();
+        
+        response.put("method", "game_over");
+        response.put("winner", game.winner);
+        response.put("description", "");
+        return response;
+    }
+    
     public static void onMessageReceived(TCPServer.Client client, String message){
         JSONParser parser = new JSONParser();
         JSONObject response = new JSONObject();
@@ -443,6 +487,14 @@ public class Server {
                             game.numFailVoteCivilian = 0;
                         }
                     }
+                    
+                    //check game over
+                    if(isGameOver()){
+                        response = gameOver();
+                        Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
+                        return;
+                    }
+                    
                     response = changePhase(); //change to night phase
                     Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
 
@@ -464,6 +516,14 @@ public class Server {
                         
                         return;
                     }
+                    
+                    //check game over
+                    if(isGameOver()){
+                        response = gameOver();
+                        Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
+                        return;
+                    }
+                    
                     response = changePhase(); //change to day phase
                     Server.tcpServer.broadcast(clientList,response.toString()); //broadcast to all clients
                     
