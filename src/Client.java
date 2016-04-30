@@ -298,6 +298,27 @@ public class Client{
                 }
             }
         });
+        
+        udpClient.registerListener("vote_civilian", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject response) {
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+                infoCivilianKilled(Integer.parseInt(message.get("player_id").toString()));
+                
+                try {
+                    JSONObject response = new JSONObject();
+                    response.put("status", "fail");
+                    response.put("status", "rejected");
+
+                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
     }
 
     public static void promptServerAddress(){
@@ -381,28 +402,24 @@ public class Client{
 
         tcpClient.send(jsonObject.toString());
     }
-    
-    public static void killWerewolfVote(int kpuID){
-        //send vote to KPU for all non-KPU
-        if (playerID != paxos.getKpuID()){
-            //tcpClient dan werewolf
-            
-            Scanner reader = new Scanner(System.in);  // Reading from System.in
-            int playerIDVote = reader.nextInt();
-            
-            JSONObject jsonObject = new JSONObject();
-            
-            jsonObject.put("method","vote_werewolf");
-            jsonObject.put("player_id", playerIDVote);
-            UDPClient udpClient = new UDPClient();
-            
-            try {
-                udpClient.send(jsonObject.toString());
-            } catch (Exception ex) {
-                Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
-            }
+
+    public static void killWerewolfVote(int kpuID){     
+        Scanner reader = new Scanner(System.in);  // Reading from System.in
+        int playerIDVote = reader.nextInt();
+
+        JSONObject jsonObject = new JSONObject();
+
+        jsonObject.put("method","vote_werewolf");
+        jsonObject.put("player_id", playerIDVote);
+        UDPClient udpClient = new UDPClient();
+
+        try {
+            udpClient.send(jsonObject.toString());
+        } catch (Exception ex) {
+            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
+
     
     public static void infoWerewolfKilled(int player_id){
         boolean added = false;
@@ -467,9 +484,103 @@ public class Client{
                 jsonObject.put("vote_result", recap);
                 tcpClient.send(jsonObject.toString());
             }
+            numOfVote = 0; //reset numOfVote untuk voting baru
+            voteList.clear(); //reset list of vote
         }
     }
-}
+    
+    public static void killCivilianVote(int kpuID){
+        Scanner reader = new Scanner(System.in);  // Reading from System.in
+        int playerIDVote = reader.nextInt();
+
+        JSONObject jsonObject = new JSONObject();
+
+        jsonObject.put("method","vote_civilian");
+        jsonObject.put("player_id", playerIDVote);
+        UDPClient udpClient = new UDPClient();
+
+        try {
+            udpClient.send(jsonObject.toString());
+        } catch (Exception ex) {
+            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+    
+    public static void infoCivilianKilled(int player_id){
+        boolean added = false;
+        numOfVote++;
+        //cari apakah sudah ada di voteList
+        for (Vote object: voteList) {
+            if ((player_id==object.getPlayerId()) && !added) {
+                //tambah count 1
+                object.setVoteCount(object.getVoteCount() + 1);
+                added=true;
+            }
+            if(added){
+                break;
+            }
+        }
+        if (!added){
+            //buat vote baru
+            Vote voteNew = new Vote(player_id,1);
+            voteList.add(voteNew);
+        }
+
+        //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
+        if (numOfVote==numOfPlayer){
+            //Menentukan apakah ada voting tertinggi
+            Vote player_to_kill = voteList.get(0); // asumsi awal majority
+            boolean majority_selected = true;
+            for (Vote object: voteList) {
+                if (object.getVoteCount() > player_to_kill.getVoteCount()) {
+                    player_to_kill = object;
+                    majority_selected = true; //ada majority baru
+                } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
+                    majority_selected = false; //ada lebih dari 1 majority
+                }
+            }
+            //Sudah ada kesimpulan apakah ada majority / tidak
+
+            //rekapitulasi vote_result
+            String recap = "";
+            //Vote pertama
+            Vote firstVote = voteList.get(0);
+            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]"; 
+            for (Vote object: voteList) {
+                if(object.getPlayerId() != firstVote.getPlayerId()){
+                    recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
+                }
+            }
+            recap = recap +"]";
+            
+            JSONObject jsonObject = new JSONObject();
+
+            //rekapitulasi selesai  
+            if (majority_selected){
+                jsonObject.put("method","vote_result_civilian");
+                jsonObject.put("vote_status", "1");
+                jsonObject.put("player_killed", player_to_kill.getPlayerId());
+                jsonObject.put("vote_result", recap);
+                tcpClient.send(jsonObject.toString());
+                //   System.out.println(jsonObject.toString());
+            } else { //tidak ada majority terpilih
+                jsonObject.put("method","vote_result");
+                jsonObject.put("vote_status", "-1");
+                jsonObject.put("vote_result", recap);
+                tcpClient.send(jsonObject.toString());
+            }
+            numOfVote = 0; //reset numOfVote untuk voting baru
+            voteList.clear(); //reset list of vote
+        }
+    }
+    
+    
+    
+    
+    
+    
+    }
+    
 
 class Vote{
     private int playerId;
