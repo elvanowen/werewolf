@@ -40,6 +40,8 @@ public class Paxos {
 
         setKpuID(-1);
         setHighestKpuID("-1", "-1");
+
+        System.out.println("Paxos contructor : " + role);
     }
 
     void setPlayerID(int playerID){
@@ -73,6 +75,7 @@ public class Paxos {
     }
 
     void sendPrepareProposal(){
+        System.out.println("Paxos sendPrepareProposal");
         state = PAXOS_STATE.PREPARE;
 
 //        Reset all value
@@ -124,6 +127,9 @@ public class Paxos {
     }
 
     void onPreparePromiseReceived(JSONObject message, String remoteAddress, int remotePort){
+        System.out.println("Paxos onPreparePromiseReceived");
+        System.out.println(message.toString());
+
         if (role == PAXOS_ROLE.ACCEPTOR){
             Integer[] kpuId = getHighestKPUId();
 
@@ -161,6 +167,7 @@ public class Paxos {
     }
 
     void sendAcceptProposal(){
+        System.out.println("Paxos sendAcceptProposal");
         state = PAXOS_STATE.ACCEPT;
 
         if (role == PAXOS_ROLE.LEADER) {
@@ -208,6 +215,9 @@ public class Paxos {
     }
 
     void onAcceptPromiseReceived(JSONObject message, String remoteAddress, int remotePort){
+        System.out.println("Paxos onAcceptPromiseReceived");
+        System.out.println(message.toString());
+
         if (role == PAXOS_ROLE.ACCEPTOR){
             Integer[] kpuId = getHighestKPUId();
 
@@ -246,6 +256,7 @@ public class Paxos {
     }
 
     void sendToLearner(){
+        System.out.println("Paxos sendToLearner");
         state = PAXOS_STATE.DONE;
 
         JSONObject jsonObject = new JSONObject();

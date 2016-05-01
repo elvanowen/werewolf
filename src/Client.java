@@ -343,8 +343,8 @@ public class Client{
         String targetAddress = reader.nextLine();
 
         if (targetAddress.equals("")){
-//            targetAddress = "localhost";
-            targetAddress = "10.5.22.49";
+            targetAddress = "localhost";
+//            targetAddress = "10.5.22.49";
         }
 
         System.out.print("Enter server port [8888]: ");
