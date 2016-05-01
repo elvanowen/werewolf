@@ -46,7 +46,11 @@ class WerewolfTCPClient extends TCPClient{
     }
 
     public void send(JSONObject message){
-        this.lastSentMethod = message.get("method").toString();
+        if (message.get("method") != null) {
+            System.out.println("Setting method : " + message.get("method").toString());
+            this.lastSentMethod = message.get("method").toString();
+        }
+
         super.send(message.toString());
     }
 }
@@ -111,7 +115,8 @@ public class Client{
     static int playerID;
     static Paxos paxos;
     static GAME_ROLE playerRole;
-    static ArrayList<JSONObject> playerFriends;
+    static ArrayList<String> playerFriends;
+    static String gameTime;
 
     static ArrayList<Vote> voteList;
     static int numOfPlayer;
@@ -134,7 +139,7 @@ public class Client{
             public void onMessageReceived(JSONObject response) {
                 System.out.println("onMessageReceived join");
 
-                if (response.get("status") == "ok") {
+                if (response.get("status").toString().equalsIgnoreCase("ok")) {
                     playerID = Integer.parseInt(response.get("player_id").toString());
                 }
             }
@@ -160,7 +165,7 @@ public class Client{
             public void onMessageReceived(JSONObject response) {
                 System.out.println("onMessageReceived leave");
 
-                if (response.get("status") == "ok") {
+                if (response.get("status").toString().equalsIgnoreCase("ok")) {
                     System.exit(0);
                 }
             }
@@ -173,68 +178,78 @@ public class Client{
 
         tcpClient.registerListener("client_address", new OnMessageResponseInterface() {
             @Override
-            public void onMessageReceived(JSONObject message) {
-
-            }
-
-            @Override
-            public void onMessageReceived(JSONObject response, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject response) {
                 System.out.println("onMessageReceived client_address");
 
-                if (response.get("status") == "ok") {
+                if (response.get("status").toString().equalsIgnoreCase("ok")) {
                     JSONArray clients = (JSONArray) response.get("clients");
 
                     clientList = new ArrayList<>();
+                    ArrayList<String> usernames = new ArrayList<>();
 
                     for (int i = 0; i < clients.size(); i++) {
                         clientList.add((JSONObject) clients.get(i));
                     }
 
                     if (playerRole == GAME_ROLE.WEREWOLF){
-                        playerFriends = new ArrayList<>();
+                        System.out.println("----------------------------");
+                        System.out.println("Your Werewolf friends are : ");
+                        usernames = playerFriends;
+                    } else {
+                        System.out.println("----------------------------");
+                        System.out.println("Game players are : ");
 
-                        JSONArray _playerFriends = ((JSONArray)response.get("friend"));
+                        for (int i=0;i<clientList.size();i++){
+                            usernames.add(clientList.get(i).get("username").toString());
+                        }
+                    }
 
-                        for (int i=0;i < _playerFriends.size() ; i++){
-                            for (int j = 0; j < clients.size(); j++) {
-                                if (((JSONObject) clients.get(j)).get("player_id").equals(_playerFriends.get(i).toString())){
-                                    playerFriends.add((JSONObject) clients.get(j));
+                    for (int i=0;i<usernames.size();i++){
+                        System.out.println("\t-\t" + usernames.get(i));
+                    }
+
+                    System.out.println("----------------------------");
+                    System.out.println();
+
+                    if (gameTime.equalsIgnoreCase("day")){
+                        ArrayList<Integer> playerIds = new ArrayList<Integer>();
+
+                        for (JSONObject client: clientList){
+                            playerIds.add(Integer.parseInt(client.get("player_id").toString()));
+                        }
+
+                        Collections.sort(playerIds);
+
+                        if (playerID == playerIds.get(0) || playerID == playerIds.get(1)) {
+                            paxos = new Paxos(PAXOS_ROLE.LEADER);
+                            paxos.setPlayerID(playerID);
+                            paxos.setClientList(clientList);
+                            paxos.setServerSocket(tcpClient);
+                            paxos.sendPrepareProposal();
+                        } else {
+                            paxos = new Paxos(PAXOS_ROLE.ACCEPTOR);
+                            paxos.setPlayerID(playerID);
+                            paxos.setClientList(clientList);
+                            paxos.setServerSocket(tcpClient);
+                        }
+
+                        paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
+
+                            @Override
+                            public void onLeaderChosen(int kpuId) {
+                                if (paxos.role == PAXOS_ROLE.ACCEPTOR) {
+                                    killCivilianVote(kpuId);
                                 }
                             }
-
-                            System.out.println("Your Werewolf friends are : " + playerFriends);
-                        }
-                    } else {
-                        System.out.println("Game players are : " + clientList);
+                        });
+                    } else if (gameTime.equalsIgnoreCase("night")){
+                        killWerewolfVote(paxos.getKpuID());
                     }
                 }
             }
-        });
-
-        tcpClient.registerListener("prepare_proposal", new OnMessageResponseInterface() {
-            @Override
-            public void onMessageReceived(JSONObject response) {
-            }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
-                System.out.println("onMessageReceived prepare_proposal");
-
-                paxos.onPreparePromiseReceived(message, remoteAddress, remotePort);
-            }
-        });
-
-        tcpClient.registerListener("accept_proposal", new OnMessageResponseInterface() {
-            @Override
-            public void onMessageReceived(JSONObject message) {
-
-            }
-
-            @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
-                System.out.println("onMessageReceived accept_proposal");
-
-                paxos.onAcceptPromiseReceived(message, remoteAddress, remotePort);
+            public void onMessageReceived(JSONObject response, String remoteAddress, int remotePort) {
             }
         });
 
@@ -243,9 +258,12 @@ public class Client{
             public void onMessageReceived(JSONObject response) {
                 System.out.println("onMessageReceived kpu_selected");
 
-                tcpClient.send(new JSONObject().put("status", "ok").toString());
+                JSONObject jsonObject = new JSONObject();
+                jsonObject.put("status", "ok");
 
-                paxos.setKpuID(Integer.parseInt(response.get("kpu_id").toString()));
+                tcpClient.send(jsonObject);
+
+                paxos.setKpuID((Integer) response.get("kpu_id"));
                 paxos.onLeaderChosenCallback.onLeaderChosen(paxos.getKpuID());
             }
 
@@ -259,13 +277,28 @@ public class Client{
             public void onMessageReceived(JSONObject response) {
                 System.out.println("onMessageReceived Start");
 
-                tcpClient.send(new JSONObject().put("status", "ok").toString());
+                JSONObject jsonObject = new JSONObject();
+                jsonObject.put("status", "ok");
+
+                tcpClient.send(jsonObject);
 
                 if (response.get("role").toString().equals("werewolf")) {
                     playerRole = GAME_ROLE.WEREWOLF;
+
+                    JSONArray _playerFriends = ((JSONArray)response.get("friend"));
+                    playerFriends = new ArrayList<>();
+
+                    for (int i=0;i<_playerFriends.size();i++){
+                        playerFriends.add(_playerFriends.get(i).toString());
+                    }
+
+                    System.out.println("playerFriends : " + playerFriends);
                 } else {
                     playerRole = GAME_ROLE.CIVILIAN;
                 }
+
+                System.out.println("Player Role : " + playerRole);
+                System.out.println("Listing client");
 
                 listClient();
             }
@@ -281,42 +314,13 @@ public class Client{
             public void onMessageReceived(JSONObject response) {
                 System.out.println("onMessageReceived change_phase");
 
-                tcpClient.send(new JSONObject().put("status", "ok").toString());
+                JSONObject jsonObject = new JSONObject();
+                jsonObject.put("status", "ok");
 
-                if (response.get("time") == "day"){
-                    ArrayList<Integer> playerIds = new ArrayList<Integer>();
+                tcpClient.send(jsonObject);
 
-                    for (JSONObject client: clientList){
-                        playerIds.add(Integer.parseInt(client.get("player_id").toString()));
-                    }
-
-                    Collections.sort(playerIds);
-
-                    if (playerID == playerIds.get(0) || playerID == playerIds.get(1)) {
-                        paxos = new Paxos(PAXOS_ROLE.LEADER);
-                        paxos.setPlayerID(playerID);
-                        paxos.setClientList(clientList);
-                        paxos.setServerSocket(tcpClient);
-                        paxos.sendPrepareProposal();
-                    } else {
-                        paxos = new Paxos(PAXOS_ROLE.ACCEPTOR);
-                        paxos.setPlayerID(playerID);
-                        paxos.setClientList(clientList);
-                        paxos.setServerSocket(tcpClient);
-                    }
-
-                    paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
-
-                        @Override
-                        public void onLeaderChosen(int kpuId) {
-                            if (paxos.role == PAXOS_ROLE.ACCEPTOR){
-                                killCivilianVote(kpuId);
-                            }
-                        }
-                    });
-                } else if (response.get("time") == "night"){
-                    killWerewolfVote(paxos.getKpuID());
-                }
+                gameTime = response.get("time").toString();
+                listClient();
             }
 
             @Override
@@ -330,12 +334,42 @@ public class Client{
             public void onMessageReceived(JSONObject response) {
                 System.out.println("onMessageReceived game_over");
 
-                tcpClient.send(new JSONObject().put("status", "ok").toString());
+                JSONObject jsonObject = new JSONObject();
+                jsonObject.put("status", "ok");
+
+                tcpClient.send(jsonObject);
             }
 
             @Override
             public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
 
+            }
+        });
+
+        udpServer.registerListener("prepare_proposal", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject response) {
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+                System.out.println("onMessageReceived prepare_proposal");
+
+                paxos.onPreparePromiseReceived(message, remoteAddress, remotePort);
+            }
+        });
+
+        udpServer.registerListener("accept_proposal", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject message) {
+
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+                System.out.println("onMessageReceived accept_proposal");
+
+                paxos.onAcceptPromiseReceived(message, remoteAddress, remotePort);
             }
         });
 
@@ -477,21 +511,23 @@ public class Client{
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("method", "leave");
 
-        tcpClient.send(jsonObject.toString());
+        tcpClient.send(jsonObject);
     }
 
     public static void readyUp(){
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("method", "ready");
 
-        tcpClient.send(jsonObject.toString());
+        tcpClient.send(jsonObject);
     }
 
     public static void listClient(){
+        System.out.println("listClient method");
+
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("method", "client_address");
 
-        tcpClient.send(jsonObject.toString());
+        tcpClient.send(jsonObject);
     }
 
     public static void killWerewolfVote(int kpuID){
@@ -574,13 +610,13 @@ public class Client{
                 jsonObject.put("vote_status", "1");
                 jsonObject.put("player_killed", player_to_kill.getPlayerId());
                 jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject.toString());
+                tcpClient.send(jsonObject);
                 //   System.out.println(jsonObject.toString());
             } else { //tidak ada majority terpilih
                 jsonObject.put("method","vote_result");
                 jsonObject.put("vote_status", "-1");
                 jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject.toString());
+                tcpClient.send(jsonObject);
             }
             numOfVote = 0; //reset numOfVote untuk voting baru
             voteList.clear(); //reset list of vote
@@ -666,13 +702,13 @@ public class Client{
                 jsonObject.put("vote_status", "1");
                 jsonObject.put("player_killed", player_to_kill.getPlayerId());
                 jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject.toString());
+                tcpClient.send(jsonObject);
                 //   System.out.println(jsonObject.toString());
             } else { //tidak ada majority terpilih
                 jsonObject.put("method","vote_result");
                 jsonObject.put("vote_status", "-1");
                 jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject.toString());
+                tcpClient.send(jsonObject);
             }
             numOfVote = 0; //reset numOfVote untuk voting baru
             voteList.clear(); //reset list of vote

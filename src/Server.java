@@ -175,7 +175,7 @@ public class Server {
     //return client in JSON format
     public static JSONObject getClient(TCPServer.Client client){
         JSONObject response = new JSONObject();
-        response.put("played_id",client.playerId);
+        response.put("player_id",client.playerId);
         response.put("is_alive",client.isAlive);
         response.put("address",client.udpAddress);
         response.put("port",client.udpPort);
