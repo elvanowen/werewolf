@@ -111,6 +111,8 @@ public class Server {
     private int clientReady; // num of clients ready
     private static Game game;
     
+    private static int newPlayerId = 0;
+    
     public Server(){
         this.clientList = new HashMap<String, TCPServer.Client>();
         game = new Game();
@@ -121,7 +123,7 @@ public class Server {
         
         if(!clientList.containsKey(username)){
             if(!Server.game.gameStatus.equals("playing")){
-                client.setClientJoin(clientList.size(), udp_address, udp_port, username);
+                client.setClientJoin(newPlayerId++, udp_address, udp_port, username);
                 clientList.put(username, client);
                 response.put("status", "ok");
                 response.put("player_id", client.playerId);
@@ -228,6 +230,10 @@ public class Server {
         //give roles (civilian or werewolf) to every tcpClient
         int numWerewolf = (int) (long) ((double)clientList.size()/3);
         int numCivilian = clientList.size() - numWerewolf;
+        
+//        int numWerewolf = 2; //dummy
+//        int numCivilian =1;
+        
         int[] roles = new int[2];
         roles[0] = numWerewolf;
         roles[1] = numCivilian;
@@ -250,7 +256,7 @@ public class Server {
     }
     
     //return all werewolf friends
-    public static  String[] getFriends(TCPServer.Client werewolf){
+    public static  ArrayList<String> getFriends(TCPServer.Client werewolf){
         ArrayList<String> friends = new ArrayList<String>();
         
         Iterator it = clientList.entrySet().iterator();
@@ -261,11 +267,11 @@ public class Server {
                 friends.add(client.username);
 //            it.remove(); // avoids a ConcurrentModificationException
         }
-        
-        String[] friendArr = new String[friends.size()];
-        friendArr = friends.toArray(friendArr);
+        System.out.println("friendList: "+friends.toString());
+//        String[] friendArr = new String[friends.size()];
+//        friendArr = friends.toArray(friendArr);
 
-        return friendArr;
+        return friends;
     }
     
     public static JSONObject startGame(TCPServer.Client client){
@@ -274,8 +280,10 @@ public class Server {
         request.put("method", "start");
         request.put("time", game.time);
         request.put("role", client.role);
-        if(client.role.equals("werewolf"))
-            request.put("friend",(Object)getFriends(client));
+        if(client.role.equals("werewolf")){
+            System.out.println("friends: "+getFriends(client).toString());
+            request.put("friend", getFriends(client));
+        }
         else
             request.put("friend","");
         request.put("description", "game is started");
