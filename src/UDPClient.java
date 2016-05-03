@@ -12,31 +12,25 @@ public class UDPClient {
      * menggunakan UnreliableSender untuk mensimulasikan paket yang hilang.
      */
 
-    InetAddress IPAddress;
+    InetAddress targetAddress;
     int targetPort;
+    UDPServer udpServer;
 
-    DatagramSocket datagramSocket;
-    UnreliableSender unreliableSender;
+//    public UDPClient(){
+//        this("localhost", 7777);
+//    }
 
-    public UDPClient(){
-        this("localhost", 7777);
-    }
-
-    public UDPClient(String targetAddress, int targetPort){
+    public UDPClient(InetAddress targetAddress, int targetPort, UDPServer udpServer){
         try {
-            this.IPAddress = InetAddress.getByName(targetAddress);
+            this.targetAddress = targetAddress;
             this.targetPort = targetPort;
-
-            datagramSocket = new DatagramSocket();
-            unreliableSender = new UnreliableSender(datagramSocket);
+            this.udpServer = udpServer;
         } catch (Exception e){
-            System.out.print(e.getMessage());
+            e.printStackTrace();
         }
     }
 
     public void send(String message) throws Exception{
-        byte[] sendData = message.getBytes();
-        DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, IPAddress, targetPort);
-        unreliableSender.send(sendPacket);
+        udpServer.send(message, this.targetAddress, this.targetPort);
     }
 }

@@ -1,8 +1,8 @@
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
-import java.util.ArrayList;
-import java.util.Collections;
+import java.net.InetAddress;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -31,15 +31,17 @@ public class Paxos {
     ArrayList<JSONObject> clientList;
     ArrayList<JSONObject> preparePromiseList = new ArrayList<>();
     ArrayList<JSONObject> acceptPromiseList = new ArrayList<>();
-    Integer[] highestKPUId = new Integer[2];
+    Integer[] highestProposalId = new Integer[2];
     OnLeaderChosenInterface onLeaderChosenCallback;
     TCPClient serverSocket;
+    UDPServer udpServer;
+    static boolean isCallbackCalled;
 
     public Paxos(PAXOS_ROLE role){
         this.role = role;
 
-        setKpuID(-1);
-        setHighestKpuID("-1", "-1");
+        setAcceptedKpuID(-1);
+        setHighestProposalID(-1, -1);
 
         System.out.println("Paxos contructor : " + role);
     }
@@ -52,38 +54,53 @@ public class Paxos {
         this.clientList = clientList;
     }
 
-    int getKpuID(){
+    int getAcceptedKpuID(){
         return kpuID;
     }
 
-    void setKpuID(int kpuID){
+    void setAcceptedKpuID(int kpuID){
         this.kpuID = kpuID;
     }
 
-    void setHighestKpuID(String sequenceNumber, String playerID){
-        this.highestKPUId[0] = Integer.parseInt(sequenceNumber);
-        this.highestKPUId[1] = Integer.parseInt(playerID);
+    void setHighestProposalID(String sequenceNumber, String playerID){
+        this.highestProposalId[0] = Integer.parseInt(sequenceNumber);
+        this.highestProposalId[1] = Integer.parseInt(playerID);
+    }
 
+    void setHighestProposalID(int sequenceNumber, int playerID){
+        this.highestProposalId[0] = sequenceNumber;
+        this.highestProposalId[1] = playerID;
     }
 
     void setServerSocket(TCPClient client){
         this.serverSocket = client;
     }
 
-    Integer[] getHighestKPUId(){
-        return this.highestKPUId;
+    void setUDPServer(UDPServer udpServer){
+        this.udpServer = udpServer;
+    }
+
+    Integer[] getHighestProposalId(){
+        return this.highestProposalId;
     }
 
     void sendPrepareProposal(){
-        System.out.println("Paxos sendPrepareProposal");
         state = PAXOS_STATE.PREPARE;
 
 //        Reset all value
         preparePromiseList = new ArrayList<>();
-        acceptPromiseList = new ArrayList<>();
-        highestKPUId = new Integer[2];
+//        acceptPromiseList = new ArrayList<>();
+        highestProposalId = new Integer[2];
 
         if (role == PAXOS_ROLE.LEADER){
+
+//            Added delay to make sure every node is up
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
             JSONObject jsonObject = new JSONObject();
             jsonObject.put("method", "prepare_proposal");
 
@@ -105,10 +122,22 @@ public class Paxos {
                 int clientId = Integer.parseInt(client.get("player_id").toString());
 
                 if (clientId != playerIds.get(0) && clientId != playerIds.get(1)) {
-                    try {
-                        new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString())).send(jsonObject.toString());
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    boolean isAccepted = false;
+
+                    for (JSONObject acceptedClient: acceptPromiseList){
+                        if (Integer.parseInt(acceptedClient.get("player_id").toString()) == clientId){
+                            isAccepted = true;
+                            break;
+                        }
+                    }
+
+                    if (!isAccepted){
+                        try {
+                            new WerewolfUDPClient(InetAddress.getByName(client.get("address").toString()), Integer.parseInt(client.get("port").toString())).send(jsonObject);
+                            System.out.println("Paxos sendPrepareProposal : " + jsonObject);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
                     }
                 }
             }
@@ -118,31 +147,39 @@ public class Paxos {
             exec.schedule(new Runnable() {
                 @Override
                 public void run() {
-                    if (state == PAXOS_STATE.PREPARE && preparePromiseList.size() < (clientList.size() - 2)/2 + 1){
+                    if (state == PAXOS_STATE.PREPARE){
+                        System.out.println("Paxos prepare phase timeout !! Resending prepare proposal....");
                         sendPrepareProposal();
                     }
                 }
-            }, 3, TimeUnit.SECONDS);
+            }, new Random().nextInt((3 - 1) + 1) + 1, TimeUnit.SECONDS);
         }
     }
 
-    void onPreparePromiseReceived(JSONObject message, String remoteAddress, int remotePort){
-        System.out.println("Paxos onPreparePromiseReceived");
-        System.out.println(message.toString());
+    void onPreparePromiseReceived(JSONObject message, InetAddress remoteAddress, int remotePort){
+        System.out.println("Paxos onPreparePromiseReceived Received : " + message.toString());
 
         if (role == PAXOS_ROLE.ACCEPTOR){
-            Integer[] kpuId = getHighestKPUId();
+            Integer[] proposalId = getHighestProposalId();
+            Integer[] messageProposalId = new Integer[2];
+            messageProposalId[0] = Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString());
+            messageProposalId[1] = Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString());
 
-            if (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) > kpuId[0] || (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) == kpuId[0] && Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString()) > kpuId[1])) {
+            System.out.println("Message proposal id : " + messageProposalId[0] + " - " + messageProposalId[1]);
+            System.out.println("Highest proposal id : " + proposalId[0] + " - " + proposalId[1]);
+            System.out.println("Accepted Kpu id : " + getAcceptedKpuID());
+
+            if (messageProposalId[0] > proposalId[0] || (Objects.equals(messageProposalId[0], proposalId[0]) && messageProposalId[1] > proposalId[1])) {
                 try {
                     JSONObject response = new JSONObject();
                     response.put("status", "ok");
                     response.put("description", "accepted");
-                    response.put("previous_accepted", highestKPUId);
+                    response.put("previous_accepted", getAcceptedKpuID());
 
-                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+                    new WerewolfUDPClient(remoteAddress, remotePort).send(response);
+                    System.out.println("Paxos onPreparePromiseReceived Sent : " + response);
 
-                    setHighestKpuID(((JSONArray) message.get("proposal_id")).get(0).toString(), ((JSONArray) message.get("proposal_id")).get(1).toString());
+                    setHighestProposalID(((JSONArray) message.get("proposal_id")).get(0).toString(), ((JSONArray) message.get("proposal_id")).get(1).toString());
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -152,22 +189,63 @@ public class Paxos {
                     response.put("status", "fail");
                     response.put("description", "rejected");
 
-                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+                    new WerewolfUDPClient(remoteAddress, remotePort).send(response);
+                    System.out.println("Paxos onPreparePromiseReceived Sent : " + response);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
         } else if (role == PAXOS_ROLE.LEADER && state == PAXOS_STATE.PREPARE){
-            preparePromiseList.add(message);
+            if (message.get("status").toString().equalsIgnoreCase("ok")){
+                int previousAcceptedKpuId = Integer.parseInt(message.get("previous_accepted").toString());
 
-            if (preparePromiseList.size() > (clientList.size() - 2)/2){
-                sendAcceptProposal();
+                System.out.println("Previous accepted value : " + previousAcceptedKpuId);
+
+                preparePromiseList.add(message);
+
+                if (preparePromiseList.size() + acceptPromiseList.size() > (clientList.size() - 2)/2){
+                    int majorityCount = (clientList.size() - 2)/2;
+                    int majorityVote = -2;
+                    HashMap<String, Integer> counter = new HashMap<>();
+
+//                    Add already accepted self
+                    counter.put(String.valueOf(playerID), acceptPromiseList.size());
+
+//                    If total accepted is bigger than majority then self is the leader
+                    if (acceptPromiseList.size() > majorityCount){
+                        majorityVote = playerID;
+                    } else {
+//                    Add another not yet accepted
+                        for (JSONObject preparePromise : preparePromiseList){
+                            Integer value = counter.get(String.valueOf(preparePromise.get("previous_accepted")));
+
+                            if (value != null){
+                                counter.put(String.valueOf(preparePromise.get("previous_accepted")), ++value);
+
+                                if (value > majorityCount){
+                                    majorityVote = Integer.parseInt(preparePromise.get("previous_accepted").toString());
+                                    break;
+                                }
+                            } else {
+                                counter.put(String.valueOf(preparePromise.get("previous_accepted")), 1);
+                            }
+                        }
+                    }
+
+                    System.out.println("Vote result : " + counter);
+                    System.out.println("Majority Vote : " + majorityVote);
+
+                    if (majorityVote != -2){
+                        if (majorityVote != -1) sendAcceptProposal(majorityVote);
+                        else sendAcceptProposal(playerID);
+                    }
+                }
             }
         }
     }
 
     void sendAcceptProposal(){
-        System.out.println("Paxos sendAcceptProposal");
+        System.out.println("Paxos sendAcceptProposal : " + getAcceptedKpuID());
         state = PAXOS_STATE.ACCEPT;
 
         if (role == PAXOS_ROLE.LEADER) {
@@ -179,9 +257,14 @@ public class Paxos {
             proposalId.add(playerID);
 
             jsonObject.put("proposal_id", proposalId);
-            jsonObject.put("kpu_id", getKpuID());
 
-            ArrayList<Integer> playerIds = new ArrayList<Integer>();
+            if (getAcceptedKpuID() == -1){
+                setAcceptedKpuID(playerID);
+            }
+
+            jsonObject.put("kpu_id", getAcceptedKpuID());
+
+            ArrayList<Integer> playerIds = new ArrayList<>();
 
             for (JSONObject client: clientList){
                 playerIds.add(Integer.parseInt(client.get("player_id").toString()));
@@ -193,10 +276,21 @@ public class Paxos {
                 int clientId = Integer.parseInt(client.get("player_id").toString());
 
                 if (clientId != playerIds.get(0) && clientId != playerIds.get(1)) {
-                    try {
-                        new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString())).send(jsonObject.toString());
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    boolean isAccepted = false;
+
+                    for (JSONObject acceptedClient: acceptPromiseList){
+                        if (Integer.parseInt(acceptedClient.get("player_id").toString()) == clientId){
+                            isAccepted = true;
+                            break;
+                        }
+                    }
+
+                    if (!isAccepted){
+                        try {
+                            new WerewolfUDPClient(InetAddress.getByName(client.get("address").toString()), Integer.parseInt(client.get("port").toString())).send(jsonObject);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
                     }
                 }
             }
@@ -206,33 +300,71 @@ public class Paxos {
             exec.schedule(new Runnable() {
                 @Override
                 public void run() {
-                    if (state == PAXOS_STATE.ACCEPT && acceptPromiseList.size() < (clientList.size() - 2)/2 + 1){
+                    if (state == PAXOS_STATE.ACCEPT){
+                        System.out.println("Paxos accept phase timeout !! Resending prepare proposal....");
                         sendPrepareProposal();
                     }
                 }
-            }, 3, TimeUnit.SECONDS);
+            }, new Random().nextInt((3 - 1) + 1) + 1, TimeUnit.SECONDS);
         }
     }
 
-    void onAcceptPromiseReceived(JSONObject message, String remoteAddress, int remotePort){
-        System.out.println("Paxos onAcceptPromiseReceived");
-        System.out.println(message.toString());
+    void sendAcceptProposal (int kpuId){
+        setAcceptedKpuID(kpuId);
+        sendAcceptProposal();
+    }
+
+    void onAcceptPromiseReceived(JSONObject message, InetAddress remoteAddress, int remotePort){
+        System.out.println("Paxos onAcceptPromiseReceived Received : " + message.toString());
 
         if (role == PAXOS_ROLE.ACCEPTOR){
-            Integer[] kpuId = getHighestKPUId();
+            Integer[] proposalId = getHighestProposalId();
+            Integer[] messageProposalId = new Integer[2];
+            messageProposalId[0] = Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString());
+            messageProposalId[1] = Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString());
 
-            if (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) > kpuId[0] || (Integer.parseInt(((JSONArray) message.get("proposal_id")).get(0).toString()) == kpuId[0] && Integer.parseInt(((JSONArray) message.get("proposal_id")).get(1).toString()) > kpuId[1])) {
-                try {
-                    JSONObject response = new JSONObject();
-                    response.put("status", "ok");
-                    response.put("description", "accepted");
+            Integer messageKpuId = Integer.parseInt(message.get("kpu_id").toString());
 
-                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+            System.out.println("Message proposal id : " + messageProposalId[0] + " - " + messageProposalId[1]);
+            System.out.println("Highest proposal id : " + proposalId[0] + " - " + proposalId[1]);
 
-                    setHighestKpuID(((JSONArray) message.get("proposal_id")).get(0).toString(), ((JSONArray) message.get("proposal_id")).get(1).toString());
-                    sendToLearner();
-                } catch (Exception e) {
-                    e.printStackTrace();
+            System.out.println("Received KPU Id : " + messageKpuId);
+            System.out.println("Accepted KPU Id : " + getAcceptedKpuID());
+
+//            If never accepted or if accepted value is equal
+            if (messageProposalId[0] > proposalId[0] || (Objects.equals(messageProposalId[0], proposalId[0]) && messageProposalId[1] >= proposalId[1])){
+                if (getAcceptedKpuID() == -1 || getAcceptedKpuID() == messageKpuId) {
+                    try {
+                        JSONObject response = new JSONObject();
+                        response.put("status", "ok");
+                        response.put("description", "accepted");
+
+                        new WerewolfUDPClient(remoteAddress, remotePort).send(response);
+
+                        setHighestProposalID(((JSONArray) message.get("proposal_id")).get(0).toString(), ((JSONArray) message.get("proposal_id")).get(1).toString());
+                        setAcceptedKpuID(messageKpuId);
+
+                        System.out.println("ACCEPTED !!! KPU ID : " + getAcceptedKpuID());
+
+                        if (!isCallbackCalled){
+                            sendToLearner();
+
+                            onLeaderChosenCallback.onLeaderChosen(getAcceptedKpuID());
+                            isCallbackCalled = true;
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    try {
+                        JSONObject response = new JSONObject();
+                        response.put("status", "fail");
+                        response.put("description", "rejected");
+
+                        new WerewolfUDPClient(remoteAddress, remotePort).send(response);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 }
             } else {
                 try {
@@ -240,29 +372,42 @@ public class Paxos {
                     response.put("status", "fail");
                     response.put("description", "rejected");
 
-                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+                    new WerewolfUDPClient(remoteAddress, remotePort).send(response);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
         } else if (role == PAXOS_ROLE.LEADER && state == PAXOS_STATE.ACCEPT){
-            acceptPromiseList.add(message);
+            if (message.get("status").toString().equalsIgnoreCase("ok")) {
 
-            if (acceptPromiseList.size() > (clientList.size() - 2)/2){
-//                setKpuID(playerID);
-                state = PAXOS_STATE.DONE;
+                message.put("address", remoteAddress);
+                message.put("port", remotePort);
+
+                for (JSONObject client: clientList){
+                    if (client.get("address").toString().equalsIgnoreCase(remoteAddress.getHostAddress()) && Integer.parseInt(client.get("port").toString()) == remotePort){
+                        message.put("player_id", Integer.parseInt(client.get("player_id").toString()));
+                    }
+                }
+
+                acceptPromiseList.add(message);
+
+                if (acceptPromiseList.size() > (clientList.size() - 2)/2){
+                    state = PAXOS_STATE.DONE;
+                    System.out.println("LEADER CHOSEN !! : " + getAcceptedKpuID());
+
+                    onLeaderChosenCallback.onLeaderChosen(getAcceptedKpuID());
+                }
             }
         }
     }
 
     void sendToLearner(){
-        System.out.println("Paxos sendToLearner");
-        state = PAXOS_STATE.DONE;
-
         JSONObject jsonObject = new JSONObject();
-        jsonObject.put("method", "prepare_proposal");
-        jsonObject.put("kpu_id", getKpuID());
+        jsonObject.put("method", "accepted_proposal");
+        jsonObject.put("kpu_id", getAcceptedKpuID());
         jsonObject.put("description", "Kpu is selected");
+
+        System.out.println("Paxos sendToLearner : " + jsonObject);
 
         this.serverSocket.send(jsonObject.toString());
     }

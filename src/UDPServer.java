@@ -2,8 +2,10 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
 
 /**
  * Created by elvan_owen on 4/26/16.
@@ -19,12 +21,12 @@ public abstract class UDPServer implements Runnable {
     DatagramSocket serverSocket;
     Thread thread;
 
-    public UDPServer(){
-        this(7777);
-    }
+//    public UDPServer(){
+//        this(7777);
+//    }
 
-    public UDPServer(int listerPort){
-        this.listenPort = listerPort;
+    public UDPServer(int listenPort){
+        this.listenPort = listenPort;
 
         try {
             serverSocket = new DatagramSocket(listenPort);
@@ -32,7 +34,7 @@ public abstract class UDPServer implements Runnable {
 
             thread.start();
         } catch (Exception e){
-            System.out.println(e);
+            e.printStackTrace();
         }
     }
 
@@ -40,7 +42,7 @@ public abstract class UDPServer implements Runnable {
         return this.listenPort;
     }
 
-    public abstract void onMessageReceived(String message, String remoteAddress, int remotePort);
+    public abstract void onMessageReceived(String message, InetAddress remoteAddress, int remotePort);
 
     public void run(){
         System.out.println("UDP Server Listening on port " + listenPort);
@@ -53,10 +55,23 @@ public abstract class UDPServer implements Runnable {
 
                 String message = new String(receivePacket.getData(), 0, receivePacket.getLength());
 
-                onMessageReceived(message, receivePacket.getAddress().toString(), receivePacket.getPort());
+                System.out.println("UDPServer Receiving message from " + receivePacket.getAddress() + " : " + receivePacket.getPort());
+
+                onMessageReceived(message, receivePacket.getAddress(), receivePacket.getPort());
             } catch (Exception e) {
-                System.out.println(e.getMessage());
+                e.printStackTrace();
             }
+        }
+    }
+
+    public void send(String message, InetAddress remoteAddress, int remotePort){
+        byte[] sendData = message.getBytes();
+        DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, remoteAddress, remotePort);
+
+        try {
+            new UnreliableSender(this.serverSocket).send(sendPacket);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }

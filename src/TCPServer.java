@@ -43,7 +43,9 @@ public class TCPServer extends Thread {
     }
     
     public void onMessageReceived(Client client, String message){
-        System.out.println("received: " + message); 
+        System.out.println("TCPServer Receiving message");
+        System.out.println(message);
+
         Server.onMessageReceived(client, message); // pass to server
     }
     

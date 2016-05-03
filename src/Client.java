@@ -24,20 +24,14 @@ class WerewolfTCPClient extends TCPClient{
         callbackList.put(method, onMessageResponseInterface);
     }
 
-    public void onMessageReceived(String message) {
+    public synchronized void onMessageReceived(String message) {
         JSONObject jsonObject;
         try {
             jsonObject = (JSONObject) new JSONParser().parse(message);
-            System.out.println("onReceivedMessage : " + jsonObject);
-            System.out.println("yo : " + jsonObject.get("method"));
 
             if (jsonObject.get("method") == null) {
-                System.out.println("onReceivedMessage1 : " + message);
-
                 callbackList.get(this.lastSentMethod).onMessageReceived(jsonObject);
             } else {
-                System.out.println("onReceivedMessage2 : " + message);
-
                 callbackList.get(jsonObject.get("method").toString()).onMessageReceived(jsonObject);
             }
         } catch (ParseException e) {
@@ -47,7 +41,6 @@ class WerewolfTCPClient extends TCPClient{
 
     public void send(JSONObject message){
         if (message.get("method") != null) {
-            System.out.println("Setting method : " + message.get("method").toString());
             this.lastSentMethod = message.get("method").toString();
         }
 
@@ -56,40 +49,33 @@ class WerewolfTCPClient extends TCPClient{
 }
 
 class WerewolfUDPServer extends UDPServer{
-    String lastSentMethod;
+    static String lastSentMethod;
     static HashMap<String, OnMessageResponseInterface> callbackList = new HashMap<>();
 
     public WerewolfUDPServer(int port) {
         super(port);
+
+        WerewolfUDPClient.udpServer = this;
     }
 
     @Override
-    public void onMessageReceived(String message, String remoteAddress, int remotePort) {
-        System.out.println("onReceivedMessage : " + message);
-
+    public synchronized void onMessageReceived(String message, InetAddress remoteAddress, int remotePort) {
+        System.out.println("onMessageReceived : " + message + " -> " + remoteAddress + " : " + remotePort);
         JSONObject jsonObject;
         try {
             jsonObject = (JSONObject) new JSONParser().parse(message);
 
             if (jsonObject.get("method") == null) {
                 if (jsonObject.get("proposal_id") != null && jsonObject.get("kpu_id") != null) {
-                    System.out.println("onReceivedMessage1 : " + message);
-
 //                    For acceptor receiving accept proposal since no signal is sent before leader proposing
                     callbackList.get("accept_proposal").onMessageReceived(jsonObject, remoteAddress, remotePort);
-                } else if (jsonObject.get("proposal_id") != null) {
-                    System.out.println("onReceivedMessage2 : " + message);
-
+                } else if (jsonObject.get("proposal_id") != null || jsonObject.get("previous_accepted") != null) {
 //                    For acceptor receiving prepare proposal since no signal is sent before leader proposing
                     callbackList.get("prepare_proposal").onMessageReceived(jsonObject, remoteAddress, remotePort);
                 } else {
-                    System.out.println("onReceivedMessage3 : " + message);
-
-                    callbackList.get(this.lastSentMethod).onMessageReceived(jsonObject, remoteAddress, remotePort);
+                    callbackList.get(WerewolfUDPServer.lastSentMethod).onMessageReceived(jsonObject, remoteAddress, remotePort);
                 }
             } else {
-                System.out.println("onReceivedMessage4 : " + message);
-
                 callbackList.get(jsonObject.get("method").toString()).onMessageReceived(jsonObject, remoteAddress, remotePort);
             }
         } catch (ParseException e) {
@@ -99,6 +85,22 @@ class WerewolfUDPServer extends UDPServer{
 
     public void registerListener(String method, OnMessageResponseInterface onMessageResponseInterface){
         callbackList.put(method, onMessageResponseInterface);
+    }
+}
+
+class WerewolfUDPClient extends UDPClient{
+    static WerewolfUDPServer udpServer;
+
+    public WerewolfUDPClient(InetAddress targetAddress, int targetPort){
+        super(targetAddress, targetPort, WerewolfUDPClient.udpServer);
+    }
+
+    public synchronized void send(JSONObject message) throws Exception{
+        if (message.get("method") != null) {
+            WerewolfUDPServer.lastSentMethod = message.get("method").toString();
+        }
+
+        super.send(message.toString());
     }
 }
 
@@ -130,7 +132,7 @@ public class Client{
 
     public static void main(String args[]) throws Exception {
         registerListener();
-        while (true) promptCommand();
+        promptCommand();
     }
 
     public static void registerListener(){
@@ -145,7 +147,7 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
             }
         });
 
@@ -156,7 +158,7 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
             }
         });
 
@@ -171,7 +173,7 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
 
             }
         });
@@ -179,7 +181,7 @@ public class Client{
         tcpClient.registerListener("client_address", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
-                System.out.println("onMessageReceived client_address");
+                System.out.println("onMessageReceived client_address : " + response);
 
                 if (response.get("status").toString().equalsIgnoreCase("ok")) {
                     JSONArray clients = (JSONArray) response.get("clients");
@@ -225,31 +227,35 @@ public class Client{
                             paxos.setPlayerID(playerID);
                             paxos.setClientList(clientList);
                             paxos.setServerSocket(tcpClient);
+                            paxos.setUDPServer(udpServer);
                             paxos.sendPrepareProposal();
                         } else {
                             paxos = new Paxos(PAXOS_ROLE.ACCEPTOR);
                             paxos.setPlayerID(playerID);
                             paxos.setClientList(clientList);
                             paxos.setServerSocket(tcpClient);
+                            paxos.setUDPServer(udpServer);
                         }
 
                         paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
 
                             @Override
                             public void onLeaderChosen(int kpuId) {
-                                if (paxos.role == PAXOS_ROLE.ACCEPTOR) {
+                                if (kpuId != playerID) {
                                     killCivilianVote(kpuId);
                                 }
                             }
                         });
                     } else if (gameTime.equalsIgnoreCase("night")){
-                        killWerewolfVote(paxos.getKpuID());
+                        if (paxos.getAcceptedKpuID() != playerID) {
+                            killWerewolfVote(paxos.getAcceptedKpuID());
+                        }
                     }
                 }
             }
 
             @Override
-            public void onMessageReceived(JSONObject response, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject response, InetAddress remoteAddress, int remotePort) {
             }
         });
 
@@ -263,12 +269,12 @@ public class Client{
 
                 tcpClient.send(jsonObject);
 
-                paxos.setKpuID((Integer) response.get("kpu_id"));
-                paxos.onLeaderChosenCallback.onLeaderChosen(paxos.getKpuID());
+                paxos.setAcceptedKpuID((Integer) response.get("kpu_id"));
+                paxos.onLeaderChosenCallback.onLeaderChosen(paxos.getAcceptedKpuID());
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
             }
         });
 
@@ -281,6 +287,8 @@ public class Client{
                 jsonObject.put("status", "ok");
 
                 tcpClient.send(jsonObject);
+
+                gameTime = response.get("time").toString();
 
                 if (response.get("role").toString().equals("werewolf")) {
                     playerRole = GAME_ROLE.WEREWOLF;
@@ -304,7 +312,7 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
 
             }
         });
@@ -324,7 +332,7 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
 
             }
         });
@@ -341,7 +349,25 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
+
+            }
+        });
+
+        tcpClient.registerListener("accepted_proposal", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject response) {
+                System.out.println("onMessageReceived TCPClient prepare_proposal");
+
+                JSONObject jsonObject = new JSONObject();
+                jsonObject.put("status", "ok");
+                jsonObject.put("description", "");
+
+                tcpClient.send(jsonObject);
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
 
             }
         });
@@ -352,10 +378,10 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
                 System.out.println("onMessageReceived prepare_proposal");
 
-                paxos.onPreparePromiseReceived(message, remoteAddress, remotePort);
+                if (paxos != null) paxos.onPreparePromiseReceived(message, remoteAddress, remotePort);
             }
         });
 
@@ -366,10 +392,10 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
                 System.out.println("onMessageReceived accept_proposal");
 
-                paxos.onAcceptPromiseReceived(message, remoteAddress, remotePort);
+                if (paxos != null) paxos.onAcceptPromiseReceived(message, remoteAddress, remotePort);
             }
         });
 
@@ -379,7 +405,7 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
                 System.out.println("onMessageReceived vote_werewolf");
 
                 infoWerewolfKilled(Integer.parseInt(message.get("player_id").toString()));
@@ -389,7 +415,7 @@ public class Client{
                     response.put("status", "ok");
                     response.put("description", "");
 
-                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+                    new WerewolfUDPClient(remoteAddress, remotePort).send(response);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -402,7 +428,7 @@ public class Client{
             }
 
             @Override
-            public void onMessageReceived(JSONObject message, String remoteAddress, int remotePort) {
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
                 System.out.println("onMessageReceived vote_civilian");
 
                 infoCivilianKilled(Integer.parseInt(message.get("player_id").toString()));
@@ -412,7 +438,7 @@ public class Client{
                     response.put("status", "ok");
                     response.put("description", "");
 
-                    new UDPClient(remoteAddress, remotePort).send(response.toString());
+                    new WerewolfUDPClient(remoteAddress, remotePort).send(response);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -469,12 +495,15 @@ public class Client{
         if (command.equalsIgnoreCase("join")){
             promptUsername();
             joinGame();
+            promptCommand();
         } else if (command.equalsIgnoreCase("ready")){
             readyUp();
         } else if (command.equalsIgnoreCase("leave")){
             leaveGame();
+            promptCommand();
         } else if (command.equalsIgnoreCase("client_address")){
             listClient();
+            promptCommand();
         } else {
             System.out.println("Command not recognized");
             promptCommand();
@@ -530,28 +559,35 @@ public class Client{
         tcpClient.send(jsonObject);
     }
 
-    public static void killWerewolfVote(int kpuID){
-        Scanner reader = new Scanner(System.in);  // Reading from System.in
-        int playerIDVote = reader.nextInt();
+    public static void killWerewolfVote(final int kpuID){
+        new AsyncInput("Input player (civilian) id who to kill : ").onInputEntered(new OnInputEnteredInterface() {
+            @Override
+            public void onInputEntered(String input) {
+                int playerIDVote = Integer.parseInt(input);
 
-        JSONObject jsonObject = new JSONObject();
+                JSONObject jsonObject = new JSONObject();
 
-        jsonObject.put("method","vote_werewolf");
-        jsonObject.put("player_id", playerIDVote);
+                jsonObject.put("method","vote_werewolf");
+                jsonObject.put("player_id", playerIDVote);
 
-        UDPClient udpClient;
+                for (JSONObject client: clientList){
+                    if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
+                        WerewolfUDPClient udpClient = null;
+                        try {
+                            udpClient = new WerewolfUDPClient(InetAddress.getByAddress(client.get("address").toString().getBytes()), Integer.parseInt(client.get("port").toString()));
+                        } catch (UnknownHostException e) {
+                            e.printStackTrace();
+                        }
 
-        for (JSONObject client: clientList){
-            if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
-                udpClient = new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString()));
-
-                try {
-                    udpClient.send(jsonObject.toString());
-                } catch (Exception ex) {
-                    Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+                        try {
+                            udpClient.send(jsonObject);
+                        } catch (Exception ex) {
+                            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+                        }
+                    }
                 }
             }
-        }
+        });
     }
 
 
@@ -623,28 +659,37 @@ public class Client{
         }
     }
 
-    public static void killCivilianVote(int kpuID){
-        Scanner reader = new Scanner(System.in);  // Reading from System.in
-        int playerIDVote = reader.nextInt();
+    public static void killCivilianVote(final int kpuID){
+        new AsyncInput("Input player id who to kill : ").onInputEntered(new OnInputEnteredInterface() {
+            @Override
+            public void onInputEntered(String input) {
+                int playerIDVote = Integer.parseInt(input);
 
-        JSONObject jsonObject = new JSONObject();
+                System.out.println("PlayerIDVote : " + playerIDVote);
 
-        jsonObject.put("method","vote_civilian");
-        jsonObject.put("player_id", playerIDVote);
+                JSONObject jsonObject = new JSONObject();
 
-        UDPClient udpClient;
+                jsonObject.put("method","vote_civilian");
+                jsonObject.put("player_id", playerIDVote);
 
-        for (JSONObject client: clientList){
-            if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
-                udpClient = new UDPClient(client.get("address").toString(), Integer.parseInt(client.get("port").toString()));
+                for (JSONObject client: clientList){
+                    if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
+                        WerewolfUDPClient udpClient = null;
+                        try {
+                            udpClient = new WerewolfUDPClient(InetAddress.getByAddress(client.get("address").toString().getBytes()), Integer.parseInt(client.get("port").toString()));
+                        } catch (UnknownHostException e) {
+                            e.printStackTrace();
+                        }
 
-                try {
-                    udpClient.send(jsonObject.toString());
-                } catch (Exception ex) {
-                    Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+                        try {
+                            udpClient.send(jsonObject);
+                        } catch (Exception ex) {
+                            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
+                        }
+                    }
                 }
             }
-        }
+        });
     }
 
     public static void infoCivilianKilled(int player_id){

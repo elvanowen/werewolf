@@ -22,6 +22,9 @@ public class UnreliableSender
 		double rand = random.nextDouble();
 		if (rand < 0.85) {
 			datagramSocket.send(packet);
-		}
+            System.out.println("Sent to " + packet.getAddress() + " : " + packet.getPort());
+		} else {
+            System.out.println("Packet Dropped !");
+        }
 	}
 }
