@@ -208,36 +208,69 @@ public class Paxos {
                     int majorityVote = -2;
                     HashMap<String, Integer> counter = new HashMap<>();
 
-//                    Add already accepted self
-                    counter.put(String.valueOf(playerID), acceptPromiseList.size());
+//                    Add already accepted promise
+                    for (JSONObject acceptedPromise : acceptPromiseList){
+                        Integer value = counter.get(acceptedPromise.get("kpu_id").toString());
 
-//                    If total accepted is bigger than majority then self is the leader
-                    if (acceptPromiseList.size() > majorityCount){
-                        majorityVote = playerID;
-                    } else {
-//                    Add another not yet accepted
-                        for (JSONObject preparePromise : preparePromiseList){
-                            Integer value = counter.get(String.valueOf(preparePromise.get("previous_accepted")));
+                        if (value != null){
+                            counter.put(acceptedPromise.get("kpu_id").toString(), ++value);
 
-                            if (value != null){
-                                counter.put(String.valueOf(preparePromise.get("previous_accepted")), ++value);
-
-                                if (value > majorityCount){
-                                    majorityVote = Integer.parseInt(preparePromise.get("previous_accepted").toString());
-                                    break;
-                                }
-                            } else {
-                                counter.put(String.valueOf(preparePromise.get("previous_accepted")), 1);
+                            if (value > majorityCount){
+                                majorityVote = Integer.parseInt(acceptedPromise.get("kpu_id").toString());
+                                break;
                             }
+                        } else {
+                            counter.put(acceptedPromise.get("kpu_id").toString(), 1);
+                        }
+                    }
+
+//                    Add just received promises
+                    for (JSONObject preparePromise : preparePromiseList){
+                        Integer value = counter.get(String.valueOf(preparePromise.get("previous_accepted")));
+
+                        if (value != null){
+                            counter.put(String.valueOf(preparePromise.get("previous_accepted")), ++value);
+
+                            if (value > majorityCount){
+                                majorityVote = Integer.parseInt(preparePromise.get("previous_accepted").toString());
+                                break;
+                            }
+                        } else {
+                            counter.put(String.valueOf(preparePromise.get("previous_accepted")), 1);
                         }
                     }
 
                     System.out.println("Vote result : " + counter);
                     System.out.println("Majority Vote : " + majorityVote);
 
+//                    If majority exist
                     if (majorityVote != -2){
                         if (majorityVote != -1) sendAcceptProposal(majorityVote);
                         else sendAcceptProposal(playerID);
+                    } else {
+                        int maxValue = -1;
+                        int maxKpuId = -2;
+
+                        Iterator it = counter.entrySet().iterator();
+                        while (it.hasNext()) {
+                            Map.Entry pair = (Map.Entry)it.next();
+
+                            String key = pair.getKey().toString();
+                            int value = Integer.parseInt(pair.getValue().toString());
+
+                            if (value > maxValue){
+                                maxValue = value;
+
+                                if (key.equalsIgnoreCase("-1") && maxKpuId == -2){
+                                    maxKpuId = -1;
+                                } else {
+                                    maxKpuId = Integer.parseInt(key);
+                                }
+                            }
+                        }
+
+                        System.out.println("Max KPU Id : " + maxKpuId);
+                        sendAcceptProposal(maxKpuId);
                     }
                 }
             }
@@ -388,6 +421,8 @@ public class Paxos {
                         message.put("player_id", Integer.parseInt(client.get("player_id").toString()));
                     }
                 }
+
+                message.put("kpu_id", getAcceptedKpuID());
 
                 acceptPromiseList.add(message);
 

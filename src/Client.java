@@ -120,7 +120,7 @@ public class Client{
     static ArrayList<String> playerFriends;
     static String gameTime;
 
-    static ArrayList<Vote> voteList;
+    static ArrayList<Vote> voteList = new ArrayList<>();
     static int numOfPlayer;
     static int numOfWerewolf;
     static int numOfVote=0;
@@ -184,73 +184,15 @@ public class Client{
                 System.out.println("onMessageReceived client_address : " + response);
 
                 if (response.get("status").toString().equalsIgnoreCase("ok")) {
-                    JSONArray clients = (JSONArray) response.get("clients");
-
                     clientList = new ArrayList<>();
-                    ArrayList<String> usernames = new ArrayList<>();
+                    JSONArray clients = (JSONArray) response.get("clients");
 
                     for (int i = 0; i < clients.size(); i++) {
                         clientList.add((JSONObject) clients.get(i));
                     }
 
-                    if (playerRole == GAME_ROLE.WEREWOLF){
-                        System.out.println("----------------------------");
-                        System.out.println("Your Werewolf friends are : ");
-                        usernames = playerFriends;
-                    } else {
-                        System.out.println("----------------------------");
-                        System.out.println("Game players are : ");
-
-                        for (int i=0;i<clientList.size();i++){
-                            usernames.add(clientList.get(i).get("username").toString());
-                        }
-                    }
-
-                    for (int i=0;i<usernames.size();i++){
-                        System.out.println("\t-\t" + usernames.get(i));
-                    }
-
-                    System.out.println("----------------------------");
-                    System.out.println();
-
-                    if (gameTime.equalsIgnoreCase("day")){
-                        ArrayList<Integer> playerIds = new ArrayList<Integer>();
-
-                        for (JSONObject client: clientList){
-                            playerIds.add(Integer.parseInt(client.get("player_id").toString()));
-                        }
-
-                        Collections.sort(playerIds);
-
-                        if (playerID == playerIds.get(0) || playerID == playerIds.get(1)) {
-                            paxos = new Paxos(PAXOS_ROLE.LEADER);
-                            paxos.setPlayerID(playerID);
-                            paxos.setClientList(clientList);
-                            paxos.setServerSocket(tcpClient);
-                            paxos.setUDPServer(udpServer);
-                            paxos.sendPrepareProposal();
-                        } else {
-                            paxos = new Paxos(PAXOS_ROLE.ACCEPTOR);
-                            paxos.setPlayerID(playerID);
-                            paxos.setClientList(clientList);
-                            paxos.setServerSocket(tcpClient);
-                            paxos.setUDPServer(udpServer);
-                        }
-
-                        paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
-
-                            @Override
-                            public void onLeaderChosen(int kpuId) {
-                                if (kpuId != playerID) {
-                                    killCivilianVote(kpuId);
-                                }
-                            }
-                        });
-                    } else if (gameTime.equalsIgnoreCase("night")){
-                        if (paxos.getAcceptedKpuID() != playerID) {
-                            killWerewolfVote(paxos.getAcceptedKpuID());
-                        }
-                    }
+                    showAllPlayers();
+                    startLeaderElection();
                 }
             }
 
@@ -446,6 +388,73 @@ public class Client{
         });
     }
 
+    public static void startLeaderElection(){
+        if (gameTime.equalsIgnoreCase("day")){
+            ArrayList<Integer> playerIds = new ArrayList<Integer>();
+
+            for (JSONObject client: clientList){
+                playerIds.add(Integer.parseInt(client.get("player_id").toString()));
+            }
+
+            Collections.sort(playerIds);
+
+            if (playerID == playerIds.get(0) || playerID == playerIds.get(1)) {
+                paxos = new Paxos(PAXOS_ROLE.LEADER);
+                paxos.setPlayerID(playerID);
+                paxos.setClientList(clientList);
+                paxos.setServerSocket(tcpClient);
+                paxos.setUDPServer(udpServer);
+                paxos.sendPrepareProposal();
+            } else {
+                paxos = new Paxos(PAXOS_ROLE.ACCEPTOR);
+                paxos.setPlayerID(playerID);
+                paxos.setClientList(clientList);
+                paxos.setServerSocket(tcpClient);
+                paxos.setUDPServer(udpServer);
+            }
+
+            paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
+
+                @Override
+                public void onLeaderChosen(int kpuId) {
+                    killCivilianVote(kpuId);
+                }
+            });
+        } else if (gameTime.equalsIgnoreCase("night")){
+            if (playerRole == GAME_ROLE.WEREWOLF){
+                killWerewolfVote(paxos.getAcceptedKpuID());
+            } else {
+                System.out.println("------------");
+                System.out.println("Sleeping....");
+                System.out.println("------------");
+            }
+        }
+    }
+
+    public static void showAllPlayers(){
+        ArrayList<String> usernames = new ArrayList<>();
+
+        if (playerRole == GAME_ROLE.WEREWOLF){
+            System.out.println("----------------------------");
+            System.out.println("Your Werewolf friends are : ");
+            usernames = playerFriends;
+        } else {
+            System.out.println("----------------------------");
+            System.out.println("Game players are : ");
+
+            for (int i=0;i<clientList.size();i++){
+                usernames.add(clientList.get(i).get("username").toString());
+            }
+        }
+
+        for (int i=0;i<usernames.size();i++){
+            System.out.println("\t-\t" + usernames.get(i));
+        }
+
+        System.out.println("----------------------------");
+        System.out.println();
+    }
+
     public static void promptLocalPort(){
         Scanner reader = new Scanner(System.in);  // Reading from System.in
 
@@ -560,6 +569,12 @@ public class Client{
     }
 
     public static void killWerewolfVote(final int kpuID){
+        showAllPlayers();
+
+        System.out.println("------------");
+        System.out.println("Voting......");
+        System.out.println("------------");
+
         new AsyncInput("Input player (civilian) id who to kill : ").onInputEntered(new OnInputEnteredInterface() {
             @Override
             public void onInputEntered(String input) {
@@ -572,17 +587,11 @@ public class Client{
 
                 for (JSONObject client: clientList){
                     if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
-                        WerewolfUDPClient udpClient = null;
                         try {
-                            udpClient = new WerewolfUDPClient(InetAddress.getByAddress(client.get("address").toString().getBytes()), Integer.parseInt(client.get("port").toString()));
-                        } catch (UnknownHostException e) {
+                            new WerewolfUDPClient(InetAddress.getByName(client.get("address").toString()), Integer.parseInt(client.get("port").toString())).send(jsonObject);
+                            System.out.println("Vote Sent !!");
+                        } catch (Exception e) {
                             e.printStackTrace();
-                        }
-
-                        try {
-                            udpClient.send(jsonObject);
-                        } catch (Exception ex) {
-                            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
                         }
                     }
                 }
@@ -660,6 +669,12 @@ public class Client{
     }
 
     public static void killCivilianVote(final int kpuID){
+        showAllPlayers();
+
+        System.out.println("------------");
+        System.out.println("Voting......");
+        System.out.println("------------");
+
         new AsyncInput("Input player id who to kill : ").onInputEntered(new OnInputEnteredInterface() {
             @Override
             public void onInputEntered(String input) {
@@ -672,19 +687,14 @@ public class Client{
                 jsonObject.put("method","vote_civilian");
                 jsonObject.put("player_id", playerIDVote);
 
+                System.out.println("Clients : " + clientList);
                 for (JSONObject client: clientList){
                     if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
-                        WerewolfUDPClient udpClient = null;
                         try {
-                            udpClient = new WerewolfUDPClient(InetAddress.getByAddress(client.get("address").toString().getBytes()), Integer.parseInt(client.get("port").toString()));
-                        } catch (UnknownHostException e) {
+                            new WerewolfUDPClient(InetAddress.getByName(client.get("address").toString()), Integer.parseInt(client.get("port").toString())).send(jsonObject);
+                            System.out.println("Vote Sent !!");
+                        } catch (Exception e) {
                             e.printStackTrace();
-                        }
-
-                        try {
-                            udpClient.send(jsonObject);
-                        } catch (Exception ex) {
-                            Logger.getLogger(Client.class.getName()).log(Level.SEVERE, null, ex);
                         }
                     }
                 }
