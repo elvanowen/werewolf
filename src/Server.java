@@ -66,8 +66,10 @@ public class Server {
                 }
             }
             System.out.println("accProp: "+numAcceptedProposal +" clientSize: "+clientList.size());
-            if(numAcceptedProposal == clientList.size()-2)
+            if(numAcceptedProposal == clientList.size()-2){
                 setKpuId(); //leader decided
+                lockKpuBroadcast = false;
+            }
         }
         
         public void setKpuId(){
@@ -113,6 +115,8 @@ public class Server {
     private static Game game;
     
     private static int newPlayerId = 0;
+    
+    private static boolean lockKpuBroadcast;
     
     public Server(){
         this.clientList = new HashMap<String, TCPServer.Client>();
@@ -402,7 +406,7 @@ public class Server {
         return response;
     }
     
-    public static void onMessageReceived(TCPServer.Client client, String message){
+    public static synchronized void onMessageReceived(TCPServer.Client client, String message){
         JSONParser parser = new JSONParser();
         JSONObject response = new JSONObject();
         try {
@@ -465,11 +469,13 @@ public class Server {
                     
                     //check if leader has been decided
                     if(game.kpuId != -1){
-                        response = kpuSelected();
-                        Server.tcpServer.broadcast(clientList,response.toString()); // broadcast leader to every client
                         
-                        response = voteCommand();
-                        Server.tcpServer.broadcast(clientList,response.toString()); // broadcast vote command to every client
+                            response = kpuSelected();
+                            Server.tcpServer.broadcast(clientList,response.toString()); // broadcast leader to every client
+
+                            response = voteCommand();
+                            Server.tcpServer.broadcast(clientList,response.toString()); // broadcast vote command to every client
+                        
                     }
                     
                     return;
