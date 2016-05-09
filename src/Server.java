@@ -53,8 +53,8 @@ public class Server {
             }
             
             Arrays.sort(clientsId);//sort
-            this.proposersId[0]=clientsId[clientsId.length-2];
-            this.proposersId[1]=clientsId[clientsId.length-1];
+            this.proposersId[0]=clientsId[0];
+            this.proposersId[1]=clientsId[1];
         }
         
         public void voteLeader(int id){
@@ -65,7 +65,8 @@ public class Server {
                     break;
                 }
             }
-            if(numAcceptedProposal == clientList.size())
+            System.out.println("accProp: "+numAcceptedProposal +" clientSize: "+clientList.size());
+            if(numAcceptedProposal == clientList.size()-2)
                 setKpuId(); //leader decided
         }
         
