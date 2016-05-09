@@ -123,9 +123,12 @@ public class Client{
 
     static ArrayList<Vote> voteList = new ArrayList<>();
     static int numOfPlayer;
-    static int numOfWerewolf;
+    static int numOfWerewolf = 2;
     static int numOfVote=0;
     static boolean infoSet = false;
+    static AsyncInput asyncInput = null;
+    static ScheduledExecutorService exec = null;
+    static boolean isDead = false;
 
     static {
         promptLocalPort();
@@ -188,6 +191,7 @@ public class Client{
                 if (response.get("status").toString().equalsIgnoreCase("ok")) {
                     clientList = new ArrayList<>();
                     numOfPlayer = 0;
+                    numOfWerewolf = 2;
 
                     JSONArray clients = (JSONArray) response.get("clients");
 
@@ -195,6 +199,14 @@ public class Client{
                         clientList.add((JSONObject) clients.get(i));
 
                         if (((JSONObject) clients.get(i)).get("is_alive").toString().equalsIgnoreCase("1")) numOfPlayer++;
+
+                        if (((JSONObject) clients.get(i)).get("is_alive").toString().equalsIgnoreCase("0") && ((JSONObject) clients.get(i)).get("player_id").toString().equalsIgnoreCase(String.valueOf(playerID))) {
+                            isDead = true;
+                        }
+
+                        if (((JSONObject) clients.get(i)).get("role") != null && ((JSONObject) clients.get(i)).get("role").toString().equalsIgnoreCase("werewolf")) {
+                            numOfWerewolf = 1;
+                        }
                     }
 
                     System.out.println("onMessageReceived client_address clients : " + clientList);
@@ -242,10 +254,14 @@ public class Client{
 
                 tcpClient.send(jsonObject);
 
+                if (asyncInput != null){
+                    asyncInput.kill();
+                }
+
                 if (playerID == paxos.getAcceptedKpuID()){
                     infoSet = false;
 
-                    ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
+                    exec = Executors.newScheduledThreadPool(1);
 
                     exec.schedule(new Runnable() {
                         @Override
@@ -256,13 +272,17 @@ public class Client{
                                 infoWerewolfKilled(-1);
                             }
                         }
-                    }, 15, TimeUnit.SECONDS);
+                    }, 40, TimeUnit.SECONDS);
                 }
 
-                if (response.get("phase").toString().equalsIgnoreCase("day")){
-                    killCivilianVote(paxos.getAcceptedKpuID());
-                } else {
-                    killWerewolfVote(paxos.getAcceptedKpuID());
+                if (!isDead) {
+                    if (response.get("phase").toString().equalsIgnoreCase("day")) {
+                        killCivilianVote(paxos.getAcceptedKpuID());
+                    } else {
+                        if (playerRole == GAME_ROLE.WEREWOLF){
+                            killWerewolfVote(paxos.getAcceptedKpuID());
+                        }
+                    }
                 }
             }
 
@@ -339,6 +359,9 @@ public class Client{
                 jsonObject.put("status", "ok");
 
                 tcpClient.send(jsonObject);
+
+                System.out.println("Winner is : " + response.get("winner"));
+                System.exit(0);
             }
 
             @Override
@@ -513,7 +536,7 @@ public class Client{
     public static void showAllPlayers(){
         ArrayList<String> usernames = new ArrayList<>();
 
-        if (playerRole == GAME_ROLE.WEREWOLF){
+        if (playerRole == GAME_ROLE.WEREWOLF && gameTime.equalsIgnoreCase("night")){
             System.out.println("----------------------------");
             System.out.println("Your Werewolf friends are : ");
             usernames = playerFriends;
@@ -527,7 +550,17 @@ public class Client{
         }
 
         for (int i=0;i<usernames.size();i++){
-            System.out.println("\t-\t" + usernames.get(i));
+            System.out.print("\t-\t" + usernames.get(i));
+
+            for (JSONObject client: clientList){
+                if (client.get("username").toString().equalsIgnoreCase(usernames.get(i).toString())){
+                    if (client.get("is_alive").toString().equalsIgnoreCase("0")){
+                        System.out.print(" - DEAD");
+                    }
+                }
+            }
+
+            System.out.println();
         }
 
         System.out.println("----------------------------");
@@ -654,18 +687,26 @@ public class Client{
         System.out.println("Voting......");
         System.out.println("------------");
 
-        new AsyncInput("Input player (civilian) id who to kill : ").onInputEntered(new OnInputEnteredInterface() {
+        asyncInput = new AsyncInput("Input player (civilian) who to kill : ");
+
+        asyncInput.onInputEntered(new OnInputEnteredInterface() {
             @Override
             public void onInputEntered(String input) {
-                int playerIDVote = Integer.parseInt(input);
+                int playerIDVote = -1;
+
+                for (JSONObject client: clientList){
+                    if (client.get("username").toString().equalsIgnoreCase(input)){
+                        playerIDVote = Integer.parseInt(client.get("player_id").toString());
+                    }
+                }
 
                 JSONObject jsonObject = new JSONObject();
 
-                jsonObject.put("method","vote_werewolf");
+                jsonObject.put("method", "vote_werewolf");
                 jsonObject.put("player_id", playerIDVote);
 
-                for (JSONObject client: clientList){
-                    if (Integer.parseInt(client.get("player_id").toString()) == kpuID){
+                for (JSONObject client : clientList) {
+                    if (Integer.parseInt(client.get("player_id").toString()) == kpuID) {
                         try {
                             new WerewolfUDPClient(InetAddress.getByName(client.get("address").toString()), Integer.parseInt(client.get("port").toString())).send(jsonObject);
                             System.out.println("Vote Sent !!");
@@ -701,18 +742,30 @@ public class Client{
             }
 
             //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
-            if (numOfVote==numOfPlayer || player_id == -1){
+            if (numOfVote==numOfWerewolf || player_id == -1){
                 infoSet = true;
+                boolean majority_selected;
+                Vote player_to_kill;
 
                 //Menentukan apakah ada voting tertinggi
-                Vote player_to_kill = voteList.get(0); // asumsi awal majority
-                boolean majority_selected = true;
+                if (voteList.size()!=1 && voteList.get(0).getPlayerId() != -1) {
+                    player_to_kill = voteList.get(0); // asumsi awal majority
+                    majority_selected = true;
+                } else{
+                    player_to_kill = voteList.get(0);
+                    majority_selected = false;
+                }
+
+
+
                 for (Vote object: voteList) {
-                    if (object.getVoteCount() > player_to_kill.getVoteCount()) {
-                        player_to_kill = object;
-                        majority_selected = true; //ada majority baru
-                    } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
-                        majority_selected = false; //ada lebih dari 1 majority
+                    if((object.getPlayerId() != player_to_kill.getPlayerId()) && (object.getPlayerId() !=-1)) {
+                        if (object.getVoteCount() > player_to_kill.getVoteCount()) {
+                            player_to_kill = object;
+                            majority_selected = true; //ada majority baru
+                        } else if (object.getVoteCount() == player_to_kill.getVoteCount()) {
+                            majority_selected = false; //ada lebih dari 1 majority
+                        }
                     }
                 }
                 //Sudah ada kesimpulan apakah ada majority / tidak
@@ -745,6 +798,9 @@ public class Client{
                     jsonObject.put("vote_result", recap);
                     tcpClient.send(jsonObject);
                 }
+
+                if (exec != null && !exec.isShutdown()) exec.shutdown();
+
                 numOfVote = 0; //reset numOfVote untuk voting baru
                 voteList.clear(); //reset list of vote
             }
@@ -758,10 +814,18 @@ public class Client{
         System.out.println("Voting......");
         System.out.println("------------");
 
-        new AsyncInput("Input player id who to kill : ").onInputEntered(new OnInputEnteredInterface() {
+        asyncInput = new AsyncInput("Input player id who to kill : ");
+
+        asyncInput.onInputEntered(new OnInputEnteredInterface() {
             @Override
             public void onInputEntered(String input) {
-                int playerIDVote = Integer.parseInt(input);
+                int playerIDVote = -1;
+
+                for (JSONObject client: clientList){
+                    if (client.get("username").toString().equalsIgnoreCase(input)){
+                        playerIDVote = Integer.parseInt(client.get("player_id").toString());
+                    }
+                }
 
                 System.out.println("PlayerIDVote : " + playerIDVote);
 
@@ -786,10 +850,7 @@ public class Client{
     }
 
     public static void infoCivilianKilled(int player_id){
-        System.out.println("infoCivilianKilled1");
         if (!infoSet){
-            System.out.println("infoCivilianKilled2");
-
             boolean added = false;
             numOfVote++;
             //cari apakah sudah ada di voteList
@@ -811,18 +872,27 @@ public class Client{
 
             //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
             if (numOfVote==numOfPlayer || player_id == -1){
-                System.out.println("infoCivilianKilled3");
                 infoSet = true;
+                boolean majority_selected;
+                Vote player_to_kill;
 
                 //Menentukan apakah ada voting tertinggi
-                Vote player_to_kill = voteList.get(0); // asumsi awal majority
-                boolean majority_selected = true;
+                if (voteList.size()!=1 && voteList.get(0).getPlayerId() != -1) {
+                    player_to_kill = voteList.get(0); // asumsi awal majority
+                     majority_selected = true;
+                } else{
+                    player_to_kill = voteList.get(0);
+                    majority_selected = false;
+                }
+
                 for (Vote object: voteList) {
-                    if (object.getVoteCount() > player_to_kill.getVoteCount()) {
-                        player_to_kill = object;
-                        majority_selected = true; //ada majority baru
-                    } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
-                        majority_selected = false; //ada lebih dari 1 majority
+                    if((object.getPlayerId() != player_to_kill.getPlayerId()) && (object.getPlayerId() !=-1)) {
+                        if (object.getVoteCount() > player_to_kill.getVoteCount()) {
+                            player_to_kill = object;
+                            majority_selected = true; //ada majority baru
+                        } else if (object.getVoteCount() == player_to_kill.getVoteCount()) {
+                            majority_selected = false; //ada lebih dari 1 majority
+                        }
                     }
                 }
                 //Sudah ada kesimpulan apakah ada majority / tidak
@@ -838,8 +908,6 @@ public class Client{
                     }
                 }
                 recap = recap +"]";
-
-                System.out.println("infoCivilianKilled4 recap : " + recap);
 
                 JSONObject jsonObject = new JSONObject();
 
@@ -858,7 +926,7 @@ public class Client{
                     tcpClient.send(jsonObject);
                 }
 
-                System.out.println("infoCivilianKilled5 jsonObject : " + jsonObject);
+                if (exec != null && !exec.isShutdown()) exec.shutdown();
 
                 numOfVote = 0; //reset numOfVote untuk voting baru
                 voteList.clear(); //reset list of vote

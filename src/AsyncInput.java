@@ -27,4 +27,8 @@ public class AsyncInput implements Runnable  {
     public void onInputEntered(OnInputEnteredInterface onInputEnteredInterface){
         this.onInputEnteredInterface = onInputEnteredInterface;
     }
+
+    public void kill(){
+        Thread.currentThread().interrupt();
+    }
 }

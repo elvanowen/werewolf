@@ -35,16 +35,14 @@ public class Paxos {
     OnLeaderChosenInterface onLeaderChosenCallback;
     WerewolfTCPClient serverSocket;
     UDPServer udpServer;
-    static boolean isCallbackCalled;
-    static boolean sentToServer = false;
+    boolean isCallbackCalled;
+    boolean sentToServer = false;
 
     public Paxos(PAXOS_ROLE role){
         this.role = role;
 
         setAcceptedKpuID(-1);
         setHighestProposalID(-1, -1);
-
-        System.out.println("Paxos contructor : " + role);
     }
 
     void setPlayerID(int playerID){
@@ -270,7 +268,6 @@ public class Paxos {
                             }
                         }
 
-                        System.out.println("Max KPU Id : " + maxKpuId);
                         sendAcceptProposal(maxKpuId);
                     }
                 }
@@ -359,11 +356,11 @@ public class Paxos {
 
             Integer messageKpuId = Integer.parseInt(message.get("kpu_id").toString());
 
-            System.out.println("Message proposal id : " + messageProposalId[0] + " - " + messageProposalId[1]);
-            System.out.println("Highest proposal id : " + proposalId[0] + " - " + proposalId[1]);
-
-            System.out.println("Received KPU Id : " + messageKpuId);
-            System.out.println("Accepted KPU Id : " + getAcceptedKpuID());
+//            System.out.println("Message proposal id : " + messageProposalId[0] + " - " + messageProposalId[1]);
+//            System.out.println("Highest proposal id : " + proposalId[0] + " - " + proposalId[1]);
+//
+//            System.out.println("Received KPU Id : " + messageKpuId);
+//            System.out.println("Accepted KPU Id : " + getAcceptedKpuID());
 
 //            If never accepted or if accepted value is equal
             if (messageProposalId[0] > proposalId[0] || (Objects.equals(messageProposalId[0], proposalId[0]) && messageProposalId[1] >= proposalId[1])){
