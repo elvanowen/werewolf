@@ -42,6 +42,7 @@ class WerewolfTCPClient extends TCPClient{
     public void send(JSONObject message){
         if (message.get("method") != null) {
             this.lastSentMethod = message.get("method").toString();
+            System.out.println("last Sent Method : " + lastSentMethod);
         }
 
         super.send(message.toString());
@@ -191,8 +192,13 @@ public class Client{
                         clientList.add((JSONObject) clients.get(i));
                     }
 
+                    System.out.println("onMessageReceived client_address clients : " + clientList);
+
                     showAllPlayers();
-                    startLeaderElection();
+
+                    if (gameTime.equalsIgnoreCase("day")){
+                        startLeaderElection();
+                    }
                 }
             }
 
@@ -212,7 +218,28 @@ public class Client{
                 tcpClient.send(jsonObject);
 
                 paxos.setAcceptedKpuID((Integer) response.get("kpu_id"));
-                paxos.onLeaderChosenCallback.onLeaderChosen(paxos.getAcceptedKpuID());
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
+            }
+        });
+
+        tcpClient.registerListener("vote_now", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject response) {
+                System.out.println("onMessageReceived vote_now");
+
+                JSONObject jsonObject = new JSONObject();
+                jsonObject.put("status", "ok");
+
+                tcpClient.send(jsonObject);
+
+                if (response.get("phase").toString().equalsIgnoreCase("day")){
+                    killCivilianVote(paxos.getAcceptedKpuID());
+                } else {
+                    killWerewolfVote(paxos.getAcceptedKpuID());
+                }
             }
 
             @Override
@@ -371,18 +398,20 @@ public class Client{
 
             @Override
             public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
-                System.out.println("onMessageReceived vote_civilian");
+                System.out.println("onMessageReceived vote_civilian : " + message);
 
-                infoCivilianKilled(Integer.parseInt(message.get("player_id").toString()));
+                if (message.get("player_id") != null){
+                    infoCivilianKilled(Integer.parseInt(message.get("player_id").toString()));
 
-                try {
-                    JSONObject response = new JSONObject();
-                    response.put("status", "ok");
-                    response.put("description", "");
+                    try {
+                        JSONObject response = new JSONObject();
+                        response.put("status", "ok");
+                        response.put("description", "");
 
-                    new WerewolfUDPClient(remoteAddress, remotePort).send(response);
-                } catch (Exception e) {
-                    e.printStackTrace();
+                        new WerewolfUDPClient(remoteAddress, remotePort).send(response);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 }
             }
         });
@@ -413,13 +442,13 @@ public class Client{
                 paxos.setUDPServer(udpServer);
             }
 
-            paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
-
-                @Override
-                public void onLeaderChosen(int kpuId) {
-                    killCivilianVote(kpuId);
-                }
-            });
+//            paxos.onLeaderChosen(new Paxos.OnLeaderChosenInterface() {
+//
+//                @Override
+//                public void onLeaderChosen(int kpuId) {
+//                    killCivilianVote(kpuId);
+//                }
+//            });
         } else if (gameTime.equalsIgnoreCase("night")){
             if (playerRole == GAME_ROLE.WEREWOLF){
                 killWerewolfVote(paxos.getAcceptedKpuID());
