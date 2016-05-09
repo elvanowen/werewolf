@@ -36,6 +36,7 @@ public class Paxos {
     WerewolfTCPClient serverSocket;
     UDPServer udpServer;
     static boolean isCallbackCalled;
+    static boolean sentToServer = false;
 
     public Paxos(PAXOS_ROLE role){
         this.role = role;
@@ -95,11 +96,11 @@ public class Paxos {
         if (role == PAXOS_ROLE.LEADER){
 
 //            Added delay to make sure every node is up
-            try {
-                Thread.sleep(1500);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+//            try {
+//                Thread.sleep(1500);
+//            } catch (InterruptedException e) {
+//                e.printStackTrace();
+//            }
 
             JSONObject jsonObject = new JSONObject();
             jsonObject.put("method", "prepare_proposal");
@@ -382,7 +383,7 @@ public class Paxos {
                         if (!isCallbackCalled){
                             sendToLearner();
 
-                            onLeaderChosenCallback.onLeaderChosen(getAcceptedKpuID());
+//                            onLeaderChosenCallback.onLeaderChosen(getAcceptedKpuID());
                             isCallbackCalled = true;
                         }
                     } catch (Exception e) {
@@ -430,21 +431,25 @@ public class Paxos {
                     state = PAXOS_STATE.DONE;
                     System.out.println("LEADER CHOSEN !! : " + getAcceptedKpuID());
 
-                    onLeaderChosenCallback.onLeaderChosen(getAcceptedKpuID());
+//                    onLeaderChosenCallback.onLeaderChosen(getAcceptedKpuID());
                 }
             }
         }
     }
 
     void sendToLearner(){
-        JSONObject jsonObject = new JSONObject();
-        jsonObject.put("method", "accepted_proposal");
-        jsonObject.put("kpu_id", getAcceptedKpuID());
-        jsonObject.put("description", "Kpu is selected");
+        if (!sentToServer){
+            sentToServer = true;
 
-        System.out.println("Paxos sendToLearner : " + jsonObject);
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("method", "accepted_proposal");
+            jsonObject.put("kpu_id", getAcceptedKpuID());
+            jsonObject.put("description", "Kpu is selected");
 
-        this.serverSocket.send(jsonObject);
+            System.out.println("Paxos sendToLearner : " + jsonObject);
+
+            this.serverSocket.send(jsonObject);
+        }
     }
 
     interface OnLeaderChosenInterface{

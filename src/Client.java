@@ -5,10 +5,10 @@ import org.json.simple.parser.ParseException;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Scanner;
+import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -125,6 +125,7 @@ public class Client{
     static int numOfPlayer;
     static int numOfWerewolf;
     static int numOfVote=0;
+    static boolean infoSet = false;
 
     static {
         promptLocalPort();
@@ -186,13 +187,18 @@ public class Client{
 
                 if (response.get("status").toString().equalsIgnoreCase("ok")) {
                     clientList = new ArrayList<>();
+                    numOfPlayer = 0;
+
                     JSONArray clients = (JSONArray) response.get("clients");
 
                     for (int i = 0; i < clients.size(); i++) {
                         clientList.add((JSONObject) clients.get(i));
+
+                        if (((JSONObject) clients.get(i)).get("is_alive").toString().equalsIgnoreCase("1")) numOfPlayer++;
                     }
 
                     System.out.println("onMessageReceived client_address clients : " + clientList);
+                    System.out.println("onMessageReceived client_address numOfPlayer : " + numOfPlayer);
 
                     showAllPlayers();
 
@@ -210,14 +216,15 @@ public class Client{
         tcpClient.registerListener("kpu_selected", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
-                System.out.println("onMessageReceived kpu_selected");
+                System.out.println("onMessageReceived kpu_selected : " + response);
 
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put("status", "ok");
 
                 tcpClient.send(jsonObject);
 
-                paxos.setAcceptedKpuID((Integer) response.get("kpu_id"));
+                paxos.state = PAXOS_STATE.DONE;
+                paxos.setAcceptedKpuID(Integer.parseInt(response.get("kpu_id").toString()));
             }
 
             @Override
@@ -228,12 +235,29 @@ public class Client{
         tcpClient.registerListener("vote_now", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
-                System.out.println("onMessageReceived vote_now");
+                System.out.println("onMessageReceived vote_now : " + response);
 
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put("status", "ok");
 
                 tcpClient.send(jsonObject);
+
+                if (playerID == paxos.getAcceptedKpuID()){
+                    infoSet = false;
+
+                    ScheduledExecutorService exec = Executors.newScheduledThreadPool(1);
+
+                    exec.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (gameTime.equalsIgnoreCase("day")){
+                                infoCivilianKilled(-1);
+                            } else {
+                                infoWerewolfKilled(-1);
+                            }
+                        }
+                    }, 15, TimeUnit.SECONDS);
+                }
 
                 if (response.get("phase").toString().equalsIgnoreCase("day")){
                     killCivilianVote(paxos.getAcceptedKpuID());
@@ -326,13 +350,37 @@ public class Client{
         tcpClient.registerListener("accepted_proposal", new OnMessageResponseInterface() {
             @Override
             public void onMessageReceived(JSONObject response) {
-                System.out.println("onMessageReceived TCPClient prepare_proposal");
+                System.out.println("onMessageReceived TCPClient accepted_proposal");
 
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put("status", "ok");
                 jsonObject.put("description", "");
 
                 tcpClient.send(jsonObject);
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
+
+            }
+        });
+
+        tcpClient.registerListener("vote_result_civilian", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject message) {
+
+            }
+
+            @Override
+            public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
+
+            }
+        });
+
+        tcpClient.registerListener("vote_result_werewolf", new OnMessageResponseInterface() {
+            @Override
+            public void onMessageReceived(JSONObject message) {
+
             }
 
             @Override
@@ -377,16 +425,18 @@ public class Client{
             public void onMessageReceived(JSONObject message, InetAddress remoteAddress, int remotePort) {
                 System.out.println("onMessageReceived vote_werewolf");
 
-                infoWerewolfKilled(Integer.parseInt(message.get("player_id").toString()));
+                if (message.get("player_id") != null) {
+                    infoWerewolfKilled(Integer.parseInt(message.get("player_id").toString()));
 
-                try {
-                    JSONObject response = new JSONObject();
-                    response.put("status", "ok");
-                    response.put("description", "");
+                    try {
+                        JSONObject response = new JSONObject();
+                        response.put("status", "ok");
+                        response.put("description", "");
 
-                    new WerewolfUDPClient(remoteAddress, remotePort).send(response);
-                } catch (Exception e) {
-                    e.printStackTrace();
+                        new WerewolfUDPClient(remoteAddress, remotePort).send(response);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 }
             }
         });
@@ -630,70 +680,74 @@ public class Client{
 
 
     public static void infoWerewolfKilled(int player_id){
-        boolean added = false;
-        numOfVote++;
-        //cari apakah sudah ada di voteList
-        for (Vote object: voteList) {
-            if ((player_id==object.getPlayerId()) && !added) {
-                //tambah count 1
-                object.setVoteCount(object.getVoteCount() + 1);
-                added=true;
-            }
-            if(added){
-                break;
-            }
-        }
-        if (!added){
-            //buat vote baru
-            Vote voteNew = new Vote(player_id,1);
-            voteList.add(voteNew);
-        }
-
-        //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
-        if (numOfVote==numOfPlayer){
-            //Menentukan apakah ada voting tertinggi
-            Vote player_to_kill = voteList.get(0); // asumsi awal majority
-            boolean majority_selected = true;
+        if (!infoSet){
+            boolean added = false;
+            numOfVote++;
+            //cari apakah sudah ada di voteList
             for (Vote object: voteList) {
-                if (object.getVoteCount() > player_to_kill.getVoteCount()) {
-                    player_to_kill = object;
-                    majority_selected = true; //ada majority baru
-                } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
-                    majority_selected = false; //ada lebih dari 1 majority
+                if ((player_id==object.getPlayerId()) && !added) {
+                    //tambah count 1
+                    object.setVoteCount(object.getVoteCount() + 1);
+                    added=true;
+                }
+                if(added){
+                    break;
                 }
             }
-            //Sudah ada kesimpulan apakah ada majority / tidak
+            if (!added){
+                //buat vote baru
+                Vote voteNew = new Vote(player_id,1);
+                voteList.add(voteNew);
+            }
 
-            //rekapitulasi vote_result
-            String recap = "";
-            //Vote pertama
-            Vote firstVote = voteList.get(0);
-            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]";
-            for (Vote object: voteList) {
-                if(object.getPlayerId() != firstVote.getPlayerId()){
-                    recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
+            //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
+            if (numOfVote==numOfPlayer || player_id == -1){
+                infoSet = true;
+
+                //Menentukan apakah ada voting tertinggi
+                Vote player_to_kill = voteList.get(0); // asumsi awal majority
+                boolean majority_selected = true;
+                for (Vote object: voteList) {
+                    if (object.getVoteCount() > player_to_kill.getVoteCount()) {
+                        player_to_kill = object;
+                        majority_selected = true; //ada majority baru
+                    } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
+                        majority_selected = false; //ada lebih dari 1 majority
+                    }
                 }
-            }
-            recap = recap +"]";
+                //Sudah ada kesimpulan apakah ada majority / tidak
 
-            JSONObject jsonObject = new JSONObject();
+                //rekapitulasi vote_result
+                String recap = "";
+                //Vote pertama
+                Vote firstVote = voteList.get(0);
+                recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]";
+                for (Vote object: voteList) {
+                    if(object.getPlayerId() != firstVote.getPlayerId()){
+                        recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
+                    }
+                }
+                recap = recap +"]";
 
-            //rekapitulasi selesai
-            if (majority_selected){
-                jsonObject.put("method","vote_result_werewolf");
-                jsonObject.put("vote_status", "1");
-                jsonObject.put("player_killed", player_to_kill.getPlayerId());
-                jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject);
-                //   System.out.println(jsonObject.toString());
-            } else { //tidak ada majority terpilih
-                jsonObject.put("method","vote_result");
-                jsonObject.put("vote_status", "-1");
-                jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject);
+                JSONObject jsonObject = new JSONObject();
+
+                //rekapitulasi selesai
+                if (majority_selected){
+                    jsonObject.put("method","vote_result_werewolf");
+                    jsonObject.put("vote_status", 1);
+                    jsonObject.put("player_killed", player_to_kill.getPlayerId());
+                    jsonObject.put("vote_result", recap);
+                    tcpClient.send(jsonObject);
+                    //   System.out.println(jsonObject.toString());
+                } else { //tidak ada majority terpilih
+                    jsonObject.put("method","vote_result_werewolf");
+                    jsonObject.put("vote_status", -1);
+                    jsonObject.put("vote_result", recap);
+                    tcpClient.send(jsonObject);
+                }
+                numOfVote = 0; //reset numOfVote untuk voting baru
+                voteList.clear(); //reset list of vote
             }
-            numOfVote = 0; //reset numOfVote untuk voting baru
-            voteList.clear(); //reset list of vote
         }
     }
 
@@ -732,70 +786,83 @@ public class Client{
     }
 
     public static void infoCivilianKilled(int player_id){
-        boolean added = false;
-        numOfVote++;
-        //cari apakah sudah ada di voteList
-        for (Vote object: voteList) {
-            if ((player_id==object.getPlayerId()) && !added) {
-                //tambah count 1
-                object.setVoteCount(object.getVoteCount() + 1);
-                added=true;
-            }
-            if(added){
-                break;
-            }
-        }
-        if (!added){
-            //buat vote baru
-            Vote voteNew = new Vote(player_id,1);
-            voteList.add(voteNew);
-        }
+        System.out.println("infoCivilianKilled1");
+        if (!infoSet){
+            System.out.println("infoCivilianKilled2");
 
-        //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
-        if (numOfVote==numOfPlayer){
-            //Menentukan apakah ada voting tertinggi
-            Vote player_to_kill = voteList.get(0); // asumsi awal majority
-            boolean majority_selected = true;
+            boolean added = false;
+            numOfVote++;
+            //cari apakah sudah ada di voteList
             for (Vote object: voteList) {
-                if (object.getVoteCount() > player_to_kill.getVoteCount()) {
-                    player_to_kill = object;
-                    majority_selected = true; //ada majority baru
-                } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
-                    majority_selected = false; //ada lebih dari 1 majority
+                if ((player_id==object.getPlayerId()) && !added) {
+                    //tambah count 1
+                    object.setVoteCount(object.getVoteCount() + 1);
+                    added=true;
+                }
+                if(added){
+                    break;
                 }
             }
-            //Sudah ada kesimpulan apakah ada majority / tidak
+            if (!added){
+                //buat vote baru
+                Vote voteNew = new Vote(player_id,1);
+                voteList.add(voteNew);
+            }
 
-            //rekapitulasi vote_result
-            String recap = "";
-            //Vote pertama
-            Vote firstVote = voteList.get(0);
-            recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]";
-            for (Vote object: voteList) {
-                if(object.getPlayerId() != firstVote.getPlayerId()){
-                    recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
+            //semua telah vote, laporkan hasil voting ke server (KPU-->Server)
+            if (numOfVote==numOfPlayer || player_id == -1){
+                System.out.println("infoCivilianKilled3");
+                infoSet = true;
+
+                //Menentukan apakah ada voting tertinggi
+                Vote player_to_kill = voteList.get(0); // asumsi awal majority
+                boolean majority_selected = true;
+                for (Vote object: voteList) {
+                    if (object.getVoteCount() > player_to_kill.getVoteCount()) {
+                        player_to_kill = object;
+                        majority_selected = true; //ada majority baru
+                    } else if (object.getVoteCount() == player_to_kill.getVoteCount()){
+                        majority_selected = false; //ada lebih dari 1 majority
+                    }
                 }
-            }
-            recap = recap +"]";
+                //Sudah ada kesimpulan apakah ada majority / tidak
 
-            JSONObject jsonObject = new JSONObject();
+                //rekapitulasi vote_result
+                String recap = "";
+                //Vote pertama
+                Vote firstVote = voteList.get(0);
+                recap = recap + "[" + "[" + firstVote.getPlayerId() + ", " + firstVote.getVoteCount() + "]";
+                for (Vote object: voteList) {
+                    if(object.getPlayerId() != firstVote.getPlayerId()){
+                        recap = recap + ", [" + object.getPlayerId()  + ", " + object.getVoteCount() + "]";
+                    }
+                }
+                recap = recap +"]";
 
-            //rekapitulasi selesai
-            if (majority_selected){
-                jsonObject.put("method","vote_result_civilian");
-                jsonObject.put("vote_status", "1");
-                jsonObject.put("player_killed", player_to_kill.getPlayerId());
-                jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject);
-                //   System.out.println(jsonObject.toString());
-            } else { //tidak ada majority terpilih
-                jsonObject.put("method","vote_result");
-                jsonObject.put("vote_status", "-1");
-                jsonObject.put("vote_result", recap);
-                tcpClient.send(jsonObject);
+                System.out.println("infoCivilianKilled4 recap : " + recap);
+
+                JSONObject jsonObject = new JSONObject();
+
+                //rekapitulasi selesai
+                if (majority_selected){
+                    jsonObject.put("method","vote_result_civilian");
+                    jsonObject.put("vote_status", 1);
+                    jsonObject.put("player_killed", player_to_kill.getPlayerId());
+                    jsonObject.put("vote_result", recap);
+                    tcpClient.send(jsonObject);
+                    //   System.out.println(jsonObject.toString());
+                } else { //tidak ada majority terpilih
+                    jsonObject.put("method","vote_result_civilian");
+                    jsonObject.put("vote_status", -1);
+                    jsonObject.put("vote_result", recap);
+                    tcpClient.send(jsonObject);
+                }
+
+                System.out.println("infoCivilianKilled5 jsonObject : " + jsonObject);
+
+                numOfVote = 0; //reset numOfVote untuk voting baru
+                voteList.clear(); //reset list of vote
             }
-            numOfVote = 0; //reset numOfVote untuk voting baru
-            voteList.clear(); //reset list of vote
         }
     }
 }
