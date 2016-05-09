@@ -33,7 +33,7 @@ public class Paxos {
     ArrayList<JSONObject> acceptPromiseList = new ArrayList<>();
     Integer[] highestProposalId = new Integer[2];
     OnLeaderChosenInterface onLeaderChosenCallback;
-    TCPClient serverSocket;
+    WerewolfTCPClient serverSocket;
     UDPServer udpServer;
     static boolean isCallbackCalled;
 
@@ -72,7 +72,7 @@ public class Paxos {
         this.highestProposalId[1] = playerID;
     }
 
-    void setServerSocket(TCPClient client){
+    void setServerSocket(WerewolfTCPClient client){
         this.serverSocket = client;
     }
 
@@ -444,7 +444,7 @@ public class Paxos {
 
         System.out.println("Paxos sendToLearner : " + jsonObject);
 
-        this.serverSocket.send(jsonObject.toString());
+        this.serverSocket.send(jsonObject);
     }
 
     interface OnLeaderChosenInterface{
